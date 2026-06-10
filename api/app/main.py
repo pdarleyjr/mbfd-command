@@ -22,6 +22,13 @@ log = logging.getLogger("cmd-api")
 async def lifespan(app: FastAPI):
     db.init_db()
     app.state.http = httpx.AsyncClient()
+    # Self-provision the STT model in the background so a fresh deploy is turnkey
+    # without blocking startup on a multi-hundred-MB download.
+    import asyncio
+
+    from .stt import ensure_model_installed
+
+    app.state.model_task = asyncio.create_task(ensure_model_installed(app.state.http))
     log.info("cmd-api ready")
     try:
         yield

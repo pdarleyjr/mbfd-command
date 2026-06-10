@@ -24,6 +24,30 @@ def pcm16_to_wav(pcm: bytes, sample_rate: int) -> bytes:
     return header + pcm
 
 
+async def ensure_model_installed(client: httpx.AsyncClient) -> None:
+    """Best-effort: make sure the configured whisper model is downloaded.
+
+    speaches requires models to be installed via POST /v1/models/{id} before
+    transcription works; this makes a fresh deploy self-provisioning.
+    """
+    s = get_settings()
+    try:
+        listed = await client.get(f"{s.whisper_url}/v1/models", timeout=15.0)
+        listed.raise_for_status()
+        have = {m.get("id") for m in listed.json().get("data", [])}
+        if s.whisper_model in have:
+            log.info("whisper model %s already installed", s.whisper_model)
+            return
+        log.info("downloading whisper model %s …", s.whisper_model)
+        resp = await client.post(f"{s.whisper_url}/v1/models/{s.whisper_model}", timeout=900.0)
+        if resp.status_code < 400:
+            log.info("whisper model %s installed", s.whisper_model)
+        else:
+            log.warning("whisper model install returned %s: %s", resp.status_code, resp.text[:200])
+    except httpx.HTTPError as exc:
+        log.warning("could not ensure whisper model (will retry on demand): %s", exc)
+
+
 async def transcribe(pcm: bytes, client: httpx.AsyncClient) -> str:
     """Transcribe a PCM16 buffer via the speaches/faster-whisper endpoint."""
     if not pcm:
