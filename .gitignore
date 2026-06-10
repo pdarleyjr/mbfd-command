@@ -1,0 +1,43 @@
+# ── Node / Vite (web) ────────────────────────────────────────────────
+node_modules/
+dist/
+dist-ssr/
+*.local
+.vite/
+web/stats.html
+
+# ── Env & secrets (deny by default) ──────────────────────────────────
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+.dev.vars
+
+# ── Python / FastAPI (api) ───────────────────────────────────────────
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# ── Local data (SQLite incident store) ───────────────────────────────
+*.sqlite
+*.sqlite3
+*.db
+api/data/
+
+# ── Editor / OS ──────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# ── Logs ─────────────────────────────────────────────────────────────
+*.log
+npm-debug.log*

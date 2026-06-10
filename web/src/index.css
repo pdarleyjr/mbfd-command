@@ -1,0 +1,82 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-ground text-ink font-sans antialiased;
+    /* Touch-first: kill the 300ms tap delay & pull-to-refresh / overscroll bounce. */
+    touch-action: manipulation;
+    overscroll-behavior: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* The command surface fills the dynamic viewport with no full-page scroll. */
+  #root {
+    height: 100dvh;
+    overflow: hidden;
+  }
+
+  /* Large, legible numerals for unit identifiers. */
+  .tabnum {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@layer components {
+  /* Slim, high-contrast scrollbars for the internal scroll regions. */
+  .scroll-thin {
+    scrollbar-width: thin;
+    scrollbar-color: theme('colors.surface.line') transparent;
+  }
+  .scroll-thin::-webkit-scrollbar {
+    width: 9px;
+    height: 9px;
+  }
+  .scroll-thin::-webkit-scrollbar-thumb {
+    background: theme('colors.surface.line');
+    border-radius: 9999px;
+  }
+  .scroll-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  /* A glassy raised panel used across the command surface. */
+  .panel {
+    @apply bg-surface/80 border border-surface-line/70 backdrop-blur-md;
+  }
+
+  /* Minimum comfortable touch target for gloved/rushed use. */
+  .touch {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
+/* Hide the app chrome and lay the board out flat for print / PDF export. */
+@media print {
+  @page {
+    margin: 14mm;
+  }
+  body {
+    background: #fff !important;
+    color: #000 !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  #root {
+    height: auto !important;
+    overflow: visible !important;
+  }
+}
