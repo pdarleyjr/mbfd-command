@@ -85,6 +85,14 @@ See [`web/.env.example`](web/.env.example) and [`api/.env.example`](api/.env.exa
 
 ## Status
 
-Prototype. See [`docs/FINDINGS-fltf2-analysis.md`](docs/FINDINGS-fltf2-analysis.md) for
-the prior-system analysis that informed the design, and the deploy notes in
-[`infra/`](infra/).
+**Live prototype** at https://cmd.mbfdhub.com (behind Cloudflare Access). Deployed on
+the GMKtec via Cloudflare Tunnel; `cmd` + dedicated `cmd-whisper` containers running;
+end-to-end mic → transcript → AI speaker-tagging verified on the box.
+
+**One step remaining:** add the Google Maps API key — set `VITE_GOOGLE_MAPS_API_KEY`
+and rebuild the image ([`infra/DEPLOY.md`](infra/DEPLOY.md) §2). Until then the map
+shows an "add a key" placeholder and everything else works.
+
+See [`docs/STATUS.md`](docs/STATUS.md) for the full testing checklist, known
+limitations, and next steps, and [`docs/FINDINGS-fltf2-analysis.md`](docs/FINDINGS-fltf2-analysis.md)
+for the prior-system analysis that informed the design.
