@@ -1,0 +1,62 @@
+# MBFD Command — GMKtec deployment.
+#
+# Two containers on the existing `mbfd-ai` docker network:
+#   • cmd-whisper : a DEDICATED speaches/faster-whisper STT (isolated from the
+#                   shared whisper-stt used by Open WebUI), distil-small.en/CPU.
+#   • cmd         : the FastAPI gateway serving the SPA + API + WebSocket.
+#
+# Nothing here is published to 0.0.0.0 — only 127.0.0.1, reached by the
+# Cloudflare Tunnel. CF Access gates cmd.mbfdhub.com.
+#
+#   docker compose -f infra/compose.cmd.yaml up -d
+#
+# Build the cmd image first (from repo root), passing the Maps key:
+#   docker build -f api/Dockerfile -t mbfd-cmd:latest \
+#     --build-arg VITE_GOOGLE_MAPS_API_KEY=$VITE_GOOGLE_MAPS_API_KEY .
+
+services:
+  cmd-whisper:
+    image: ghcr.io/speaches-ai/speaches:latest-cpu
+    container_name: cmd-whisper
+    restart: unless-stopped
+    environment:
+      WHISPER__MODEL: Systran/faster-distil-whisper-small.en
+      WHISPER__INFERENCE_DEVICE: cpu
+      WHISPER__COMPUTE_TYPE: int8
+      # Keep the model warm so the first radio call isn't slow.
+      ENABLE_UI: "false"
+    networks: [mbfd-ai]
+    deploy:
+      resources:
+        limits:
+          memory: 3g
+    # No ports: reached only by `cmd` over the docker network.
+
+  cmd:
+    image: mbfd-cmd:latest
+    container_name: cmd
+    restart: unless-stopped
+    depends_on: [cmd-whisper]
+    environment:
+      CMD_WHISPER_URL: http://cmd-whisper:8000
+      CMD_WHISPER_MODEL: Systran/faster-distil-whisper-small.en
+      CMD_WHISPER_LANGUAGE: en
+      # Reach the host's warm Ollama. host-gateway is added below.
+      CMD_OLLAMA_URL: http://host.docker.internal:11434
+      CMD_OLLAMA_MODEL: qwen3.6:35b
+      CMD_DB_PATH: /app/data/mbfd_command.sqlite
+      CMD_STATIC_DIR: /app/static
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - cmd-data:/app/data
+    ports:
+      - "127.0.0.1:8210:8200" # Cloudflare Tunnel → this
+    networks: [mbfd-ai]
+
+volumes:
+  cmd-data:
+
+networks:
+  mbfd-ai:
+    external: true
