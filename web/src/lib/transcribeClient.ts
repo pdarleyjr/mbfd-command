@@ -44,7 +44,7 @@ class TranscribeClient {
   private active = false
   private incidentId = ''
 
-  async start(incidentId: string): Promise<void> {
+  async start(incidentId: string, deviceId?: string): Promise<void> {
     if (this.active) return
     this.active = true
     this.incidentId = incidentId
@@ -59,6 +59,7 @@ class TranscribeClient {
           if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(frame)
         },
         (level) => useTranscript.getState().setLevel(level),
+        deviceId,
       )
       useTranscript.getState().setStatus('listening')
     } catch (err) {
@@ -169,6 +170,12 @@ function humanizeMicError(msg: string): string {
   }
   if (/NotFound|Requested device/i.test(msg)) {
     return 'No microphone was found on this device.'
+  }
+  if (/NotReadable|TrackStart/i.test(msg)) {
+    return 'The selected microphone is busy or unavailable. Pick another input or close the app using it.'
+  }
+  if (/secure browser context|mediaDevices/i.test(msg)) {
+    return 'Microphone access requires HTTPS or localhost.'
   }
   return msg
 }

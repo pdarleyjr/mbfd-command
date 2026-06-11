@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { Flame, Info, Layers, Maximize, Minimize, Plus } from 'lucide-react'
+import { Info, Layers, Maximize, Minimize, Pause, Play, Plus, RotateCcw } from 'lucide-react'
 import type { Incident } from '@/types'
-import { elapsedSince } from '@/lib/format'
+import { elapsedMs } from '@/lib/format'
 import { useNow } from '@/lib/useNow'
 import { useBoard } from '@/store/boardStore'
 import { Button, IconButton } from '@/components/ui/Button'
@@ -12,10 +12,17 @@ import { InfoModal } from './InfoModal'
 export function AppHeader({ incident }: { incident: Incident }) {
   const renameIncident = useBoard((s) => s.renameIncident)
   const createIncident = useBoard((s) => s.createIncident)
+  const startIncidentTimer = useBoard((s) => s.startIncidentTimer)
+  const stopIncidentTimer = useBoard((s) => s.stopIncidentTimer)
+  const resetIncidentTimer = useBoard((s) => s.resetIncidentTimer)
   const now = useNow()
   const [showIncidents, setShowIncidents] = useState(false)
   const [showInfo, setShowInfo] = useState(false)
   const [fs, setFs] = useState(false)
+  const timer = incident.timer ?? { startedAt: null, accumulatedMs: 0, running: false }
+  const elapsed =
+    timer.accumulatedMs +
+    (timer.running && timer.startedAt ? Math.max(0, now - new Date(timer.startedAt).getTime()) : 0)
 
   const toggleFullscreen = async () => {
     try {
@@ -34,9 +41,11 @@ export function AppHeader({ incident }: { incident: Incident }) {
   return (
     <header className="no-print flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 px-1">
       <div className="flex items-center gap-2">
-        <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-live/15 ring-1 ring-inset ring-live/40">
-          <Flame size={20} className="text-live" />
-        </span>
+        <img
+          src="/mbfd-logo.png"
+          alt="Miami Beach Fire Department"
+          className="h-12 w-12 shrink-0 object-contain"
+        />
         <div className="leading-none">
           <div className="flex items-center gap-1.5">
             <span className="text-sm font-extrabold tracking-tight text-ink">MBFD COMMAND</span>
@@ -61,8 +70,18 @@ export function AppHeader({ incident }: { incident: Incident }) {
         <div className="flex shrink-0 items-center gap-1.5 rounded-lg bg-surface-high/70 px-2 py-1">
           <span className="h-1.5 w-1.5 rounded-full bg-ok" />
           <span className="tabnum text-sm font-bold text-ink" title="Operation elapsed time">
-            {elapsedSince(incident.createdAt, now)}
+            {elapsedMs(elapsed)}
           </span>
+          <IconButton
+            label={timer.running ? 'Stop incident timer' : 'Start incident timer'}
+            onClick={timer.running ? stopIncidentTimer : startIncidentTimer}
+            className="h-7 w-7"
+          >
+            {timer.running ? <Pause size={14} /> : <Play size={14} />}
+          </IconButton>
+          <IconButton label="Reset incident timer" onClick={resetIncidentTimer} className="h-7 w-7">
+            <RotateCcw size={13} />
+          </IconButton>
         </div>
       </div>
 

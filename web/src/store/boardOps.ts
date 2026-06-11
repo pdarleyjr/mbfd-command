@@ -1,4 +1,4 @@
-import type { BoardState, Column, Placement } from '@/types'
+import type { BoardState, Column, Placement, Unit } from '@/types'
 import { uid } from '@/lib/id'
 
 /**
@@ -18,6 +18,8 @@ export function emptyBoard(
   return {
     columns: columnDefs.map((c) => makeColumn(c.title, c.location ?? '')),
     bankUnitIds: [...bankUnitIds],
+    customUnits: [],
+    unitTimers: {},
   }
 }
 
@@ -31,6 +33,7 @@ export function findPlacement(board: BoardState, unitId: string): Placement | nu
 /** Remove a unit from wherever it sits. No-op if absent. */
 export function removeUnit(board: BoardState, unitId: string): BoardState {
   return {
+    ...board,
     bankUnitIds: board.bankUnitIds.filter((id) => id !== unitId),
     columns: board.columns.map((c) =>
       c.unitIds.includes(unitId)
@@ -71,11 +74,50 @@ export function moveUnit(
   to: Placement,
   index?: number,
 ): BoardState {
-  return insertUnit(removeUnit(board, unitId), unitId, to, index)
+  const current = findPlacement(board, unitId)
+  const moved = insertUnit(removeUnit(board, unitId), unitId, to, index)
+  const unitTimers = { ...(moved.unitTimers ?? {}) }
+
+  if (to.kind === 'bank') {
+    delete unitTimers[unitId]
+  } else {
+    const currentColumn = current?.kind === 'column' ? current.columnId : null
+    const existing = unitTimers[unitId]
+    unitTimers[unitId] =
+      existing && currentColumn === to.columnId
+        ? existing
+        : { columnId: to.columnId, startedAt: new Date().toISOString() }
+  }
+
+  return { ...moved, unitTimers }
 }
 
 export function addColumn(board: BoardState, title = 'New Column'): BoardState {
   return { ...board, columns: [...board.columns, makeColumn(title)] }
+}
+
+export function addUnit(board: BoardState, unit: Unit): BoardState {
+  const id = unit.id.trim()
+  if (!id || allUnitIds(board).includes(id)) return board
+  const nextUnit: Unit = { ...unit, id, label: unit.label.trim() || id }
+  return {
+    ...board,
+    customUnits: [...(board.customUnits ?? []).filter((u) => u.id !== id), nextUnit],
+    bankUnitIds: [...board.bankUnitIds, id],
+  }
+}
+
+export function editUnit(board: BoardState, unitId: string, unit: Unit): BoardState {
+  if (!allUnitIds(board).includes(unitId)) return board
+  const nextUnit: Unit = {
+    ...unit,
+    id: unitId,
+    label: unit.label.trim() || unitId,
+  }
+  return {
+    ...board,
+    customUnits: [...(board.customUnits ?? []).filter((u) => u.id !== unitId), nextUnit],
+  }
 }
 
 export function renameColumn(board: BoardState, columnId: string, title: string): BoardState {
@@ -113,14 +155,23 @@ export function deleteColumn(
     columns: board.columns.filter((c) => c.id !== columnId),
   }
   if (dest.kind === 'bank') {
-    return { ...withoutCol, bankUnitIds: [...withoutCol.bankUnitIds, ...orphans] }
+    const unitTimers = { ...(withoutCol.unitTimers ?? {}) }
+    orphans.forEach((id) => delete unitTimers[id])
+    return { ...withoutCol, bankUnitIds: [...withoutCol.bankUnitIds, ...orphans], unitTimers }
   }
   // Guard: if the destination was the deleted column, fall back to the bank.
   if (dest.columnId === columnId) {
-    return { ...withoutCol, bankUnitIds: [...withoutCol.bankUnitIds, ...orphans] }
+    const unitTimers = { ...(withoutCol.unitTimers ?? {}) }
+    orphans.forEach((id) => delete unitTimers[id])
+    return { ...withoutCol, bankUnitIds: [...withoutCol.bankUnitIds, ...orphans], unitTimers }
   }
+  const unitTimers = { ...(withoutCol.unitTimers ?? {}) }
+  orphans.forEach((id) => {
+    unitTimers[id] = { columnId: dest.columnId, startedAt: new Date().toISOString() }
+  })
   return {
     ...withoutCol,
+    unitTimers,
     columns: withoutCol.columns.map((c) =>
       c.id === dest.columnId ? { ...c, unitIds: [...c.unitIds, ...orphans] } : c,
     ),
@@ -149,12 +200,15 @@ export function allUnitIds(board: BoardState): string[] {
 /** Send every assigned unit back to the bank (recover/clear), keeping columns. */
 export function recoverUnitsToBank(board: BoardState, bankOrder: string[]): BoardState {
   const present = new Set(allUnitIds(board))
-  const ordered = bankOrder.filter((id) => present.has(id))
+  const customOrder = (board.customUnits ?? []).map((u) => u.id)
+  const ordered = [...bankOrder, ...customOrder].filter((id) => present.has(id))
   // Preserve any units somehow not in the canonical order (defensive).
-  const extras = allUnitIds(board).filter((id) => !bankOrder.includes(id))
+  const extras = allUnitIds(board).filter((id) => ![...bankOrder, ...customOrder].includes(id))
   return {
     columns: board.columns.map((c) => ({ ...c, unitIds: [] })),
     bankUnitIds: [...ordered, ...extras],
+    customUnits: board.customUnits ?? [],
+    unitTimers: {},
   }
 }
 
@@ -170,6 +224,12 @@ export function reconcileRoster(board: BoardState, roster: string[]): BoardState
 
   const columns = board.columns.map((c) => ({ ...c, unitIds: keepFirst(c.unitIds) }))
   const bankUnitIds = keepFirst(board.bankUnitIds)
-  const missing = roster.filter((id) => !seen.has(id))
-  return { columns, bankUnitIds: [...bankUnitIds, ...missing] }
+  const customUnits = board.customUnits ?? []
+  const rosterWithCustom = [...roster, ...customUnits.map((u) => u.id)]
+  const missing = rosterWithCustom.filter((id) => !seen.has(id))
+  const present = new Set([...bankUnitIds, ...columns.flatMap((c) => c.unitIds), ...missing])
+  const unitTimers = Object.fromEntries(
+    Object.entries(board.unitTimers ?? {}).filter(([id]) => present.has(id)),
+  )
+  return { columns, bankUnitIds: [...bankUnitIds, ...missing], customUnits, unitTimers }
 }

@@ -22,7 +22,12 @@ export function stamp(iso: string): string {
 /** Elapsed wall-clock since an ISO instant, as "H:MM:SS" or "M:SS". */
 export function elapsedSince(iso: string, nowMs: number): string {
   const start = new Date(iso).getTime()
-  let s = Math.max(0, Math.floor((nowMs - start) / 1000))
+  return elapsedMs(nowMs - start)
+}
+
+/** Elapsed milliseconds as "H:MM:SS" or "M:SS". */
+export function elapsedMs(ms: number): string {
+  let s = Math.max(0, Math.floor(ms / 1000))
   const h = Math.floor(s / 3600)
   s -= h * 3600
   const m = Math.floor(s / 60)

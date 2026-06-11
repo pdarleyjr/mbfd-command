@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import logging
+import json
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from time import monotonic
 
 import httpx
 from fastapi import Body, FastAPI, WebSocket, WebSocketDisconnect
@@ -18,10 +20,45 @@ logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("cmd-api")
 
 
+class IncidentSyncHub:
+    """In-memory WebSocket fan-out for the current live command board."""
+
+    def __init__(self) -> None:
+        self._channels: dict[str, set[WebSocket]] = {}
+
+    def connect(self, channel: str, ws: WebSocket) -> None:
+        self._channels.setdefault(channel, set()).add(ws)
+
+    def disconnect(self, channel: str, ws: WebSocket) -> None:
+        peers = self._channels.get(channel)
+        if not peers:
+            return
+        peers.discard(ws)
+        if not peers:
+            self._channels.pop(channel, None)
+
+    async def broadcast(self, channel: str, payload: dict, skip: WebSocket | None = None) -> None:
+        peers = list(self._channels.get(channel, set()))
+        stale: list[WebSocket] = []
+        for peer in peers:
+            if peer is skip:
+                continue
+            try:
+                await peer.send_json(payload)
+            except Exception:
+                stale.append(peer)
+        for peer in stale:
+            self.disconnect(channel, peer)
+
+
+incident_sync = IncidentSyncHub()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db.init_db()
     app.state.http = httpx.AsyncClient()
+    app.state.pulsepoint_cache = {"expires": 0.0, "data": None}
     # Self-provision the STT model in the background so a fresh deploy is turnkey
     # without blocking startup on a multi-hundred-MB download.
     import asyncio
@@ -53,6 +90,53 @@ async def health() -> dict:
     return {"ok": True, "service": "cmd-api", "model": settings.ollama_model}
 
 
+@app.get("/api/pulsepoint/incidents")
+async def pulsepoint_incidents():
+    """Same-origin PulsePoint proxy for the command-board live incident card."""
+    cache = app.state.pulsepoint_cache
+    now = monotonic()
+    if cache["data"] is not None and cache["expires"] > now:
+        return JSONResponse(
+            cache["data"],
+            headers={"Cache-Control": f"private, max-age={settings.pulsepoint_cache_ttl_s}"},
+        )
+
+    try:
+        response = await app.state.http.get(
+            settings.pulsepoint_url,
+            headers={"Accept": "application/json", "User-Agent": "MBFDCommand/0.1"},
+            timeout=12.0,
+        )
+        response.raise_for_status()
+        data = response.json()
+        if not isinstance(data, dict):
+            raise RuntimeError("PulsePoint proxy returned non-object JSON")
+        data.setdefault("active", [])
+        data.setdefault("recent", [])
+        data.setdefault("fetchedAt", datetime.now(timezone.utc).isoformat())
+        cache["data"] = data
+        cache["expires"] = now + max(10, settings.pulsepoint_cache_ttl_s)
+        return JSONResponse(
+            data,
+            headers={"Cache-Control": f"private, max-age={settings.pulsepoint_cache_ttl_s}"},
+        )
+    except Exception as exc:
+        log.warning("PulsePoint fetch failed: %s", exc)
+        if cache["data"] is not None:
+            stale = {**cache["data"], "stale": True}
+            return JSONResponse(stale, headers={"Cache-Control": "private, max-age=15"})
+        return JSONResponse(
+            {
+                "error": "Incident feed unavailable",
+                "active": [],
+                "recent": [],
+                "fetchedAt": datetime.now(timezone.utc).isoformat(),
+            },
+            status_code=503,
+            headers={"Cache-Control": "no-store"},
+        )
+
+
 @app.websocket("/ws/transcribe")
 async def transcribe_ws(ws: WebSocket) -> None:
     await ws.accept()
@@ -82,6 +166,52 @@ async def transcribe_ws(ws: WebSocket) -> None:
         await session.close()
 
 
+@app.websocket("/ws/incident")
+async def incident_ws(ws: WebSocket) -> None:
+    """Broadcast full incident snapshots so open command boards stay in sync."""
+    await ws.accept()
+    channel = ws.query_params.get("channel", "active") or "active"
+    client_id = ws.query_params.get("client", "unknown") or "unknown"
+    incident_sync.connect(channel, ws)
+    snapshot = await db.get_incident_snapshot(channel)
+    await ws.send_json(
+        {
+            "type": "ready",
+            "channel": channel,
+            "clientId": "server",
+            "snapshot": snapshot,
+        }
+    )
+
+    try:
+        while True:
+            msg = await ws.receive_json()
+            if msg.get("type") != "incident.update":
+                continue
+            incident = msg.get("incident")
+            if not isinstance(incident, dict):
+                continue
+            incident_id = str(incident.get("id") or channel)
+            now = datetime.now(timezone.utc).isoformat()
+            await db.ensure_incident(incident_id, now)
+            await db.save_incident_snapshot(channel, incident_id, json.dumps(incident), now)
+            payload = {
+                "type": "incident.snapshot",
+                "channel": channel,
+                "clientId": msg.get("clientId") or client_id,
+                "incident": incident,
+                "updatedAt": now,
+            }
+            await incident_sync.broadcast(channel, payload, skip=ws)
+            await ws.send_json({"type": "incident.ack", "updatedAt": now})
+    except WebSocketDisconnect:
+        pass
+    except Exception as exc:  # pragma: no cover
+        log.warning("incident sync ws error: %s", exc)
+    finally:
+        incident_sync.disconnect(channel, ws)
+
+
 @app.get("/api/incidents/{incident_id}/transcript")
 async def get_transcript(incident_id: str) -> dict:
     return {"incident": incident_id, "entries": await db.get_transcript(incident_id)}
@@ -95,11 +225,10 @@ async def clear_transcript(incident_id: str) -> dict:
 
 @app.put("/api/incidents/{incident_id}/board")
 async def put_board(incident_id: str, board: dict = Body(...)) -> dict:
-    import json
-
-    await db.ensure_incident(incident_id, datetime.now(timezone.utc).isoformat())
-    await db.save_board(incident_id, json.dumps(board), datetime.now(timezone.utc).isoformat())
-    return {"ok": True}
+    now = datetime.now(timezone.utc).isoformat()
+    await db.ensure_incident(incident_id, now)
+    await db.save_board(incident_id, json.dumps(board), now)
+    return {"ok": True, "updatedAt": now}
 
 
 @app.get("/api/incidents/{incident_id}/board")

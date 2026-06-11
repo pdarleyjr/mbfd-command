@@ -2,8 +2,10 @@ import { useDroppable } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { ChevronLeft, ChevronRight, MapPin, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/cn'
-import { UNIT_BY_ID } from '@/data/units'
-import type { Column } from '@/types'
+import { elapsedSince } from '@/lib/format'
+import { useNow } from '@/lib/useNow'
+import { unitLookup } from '@/data/units'
+import type { Column, Unit, UnitTimer } from '@/types'
 import { IconButton } from '@/components/ui/Button'
 import { InlineEdit } from '@/components/ui/InlineEdit'
 import { SortableUnit } from './SortableUnit'
@@ -16,6 +18,8 @@ interface CommandColumnProps {
   onLocation: (id: string, location: string) => void
   onDelete: (id: string) => void
   onMove: (id: string, toIndex: number) => void
+  customUnits?: Unit[]
+  unitTimers?: Record<string, UnitTimer>
 }
 
 export function CommandColumn({
@@ -26,12 +30,16 @@ export function CommandColumn({
   onLocation,
   onDelete,
   onMove,
+  customUnits = [],
+  unitTimers = {},
 }: CommandColumnProps) {
+  const now = useNow(1000)
   const { setNodeRef, isOver } = useDroppable({
     id: column.id,
     data: { type: 'column', containerId: column.id },
   })
-  const units = column.unitIds.map((id) => UNIT_BY_ID[id]).filter(Boolean)
+  const unitsById = unitLookup(customUnits)
+  const units = column.unitIds.map((id) => unitsById[id]).filter(Boolean)
 
   return (
     <section
@@ -101,7 +109,17 @@ export function CommandColumn({
       >
         <SortableContext items={column.unitIds} strategy={verticalListSortingStrategy}>
           {units.map((u) => (
-            <SortableUnit key={u.id} unit={u} containerId={column.id} compact />
+            <SortableUnit
+              key={u.id}
+              unit={u}
+              containerId={column.id}
+              compact
+              timerLabel={
+                unitTimers[u.id]?.columnId === column.id
+                  ? elapsedSince(unitTimers[u.id].startedAt, now)
+                  : undefined
+              }
+            />
           ))}
         </SortableContext>
         {units.length === 0 && (

@@ -39,7 +39,7 @@ and the app is behind Access, so this is safe). Rebuild whenever the key changes
 
 ```bash
 # Maps key lives only here at build time — not committed.
-VITE_GOOGLE_MAPS_API_KEY="<paste key>" \
+export VITE_GOOGLE_MAPS_API_KEY="<paste key>"
 docker build -f api/Dockerfile -t mbfd-cmd:latest \
   --build-arg VITE_GOOGLE_MAPS_API_KEY="$VITE_GOOGLE_MAPS_API_KEY" .
 ```
@@ -90,7 +90,8 @@ Create a **self-hosted** Access application:
 
 ```bash
 cd /opt/mbfd/cmd && git pull
-VITE_GOOGLE_MAPS_API_KEY="<key>" docker build -f api/Dockerfile -t mbfd-cmd:latest \
+export VITE_GOOGLE_MAPS_API_KEY="<key>"
+docker build -f api/Dockerfile -t mbfd-cmd:latest \
   --build-arg VITE_GOOGLE_MAPS_API_KEY="$VITE_GOOGLE_MAPS_API_KEY" .
 docker compose -f infra/compose.cmd.yaml up -d
 ```

@@ -37,6 +37,10 @@ export const UNIT_BY_ID: Record<string, Unit> = Object.fromEntries(
   UNITS.map((u) => [u.id, u]),
 )
 
+export function unitLookup(customUnits: Unit[] = []): Record<string, Unit> {
+  return Object.fromEntries([...UNITS, ...customUnits].map((u) => [u.id, u]))
+}
+
 export const DEFAULT_UNIT_ORDER: string[] = UNITS.map((u) => u.id)
 
 /**

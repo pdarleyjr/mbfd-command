@@ -11,17 +11,40 @@ export interface MicHandle {
   stop: () => Promise<void>
 }
 
+export interface AudioInputDevice {
+  deviceId: string
+  label: string
+}
+
+export async function listAudioInputs(): Promise<AudioInputDevice[]> {
+  if (!navigator.mediaDevices?.enumerateDevices) return []
+  const devices = await navigator.mediaDevices.enumerateDevices()
+  return devices
+    .filter((device) => device.kind === 'audioinput')
+    .map((device, index) => ({
+      deviceId: device.deviceId,
+      label: device.label || `Microphone ${index + 1}`,
+    }))
+}
+
 export async function startMic(
   onFrame: (pcm16: ArrayBuffer) => void,
   onLevel: (level: number) => void,
+  deviceId?: string,
 ): Promise<MicHandle> {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    throw new Error('Microphone access requires a secure browser context')
+  }
+  const audio: MediaTrackConstraints = {
+    channelCount: 1,
+    echoCancellation: false,
+    noiseSuppression: true,
+    autoGainControl: true,
+  }
+  if (deviceId) audio.deviceId = { exact: deviceId }
+
   const stream = await navigator.mediaDevices.getUserMedia({
-    audio: {
-      channelCount: 1,
-      echoCancellation: false,
-      noiseSuppression: true,
-      autoGainControl: true,
-    },
+    audio,
   })
 
   const AudioCtx: typeof AudioContext =

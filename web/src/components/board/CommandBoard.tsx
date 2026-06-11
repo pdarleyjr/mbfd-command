@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import {
   DndContext,
   DragOverlay,
@@ -16,7 +16,7 @@ import {
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable'
 import { Plus } from 'lucide-react'
 import type { BoardState, Placement } from '@/types'
-import { UNIT_BY_ID } from '@/data/units'
+import { unitLookup } from '@/data/units'
 import { findPlacement } from '@/store/boardOps'
 import { useBoard } from '@/store/boardStore'
 import { Button } from '@/components/ui/Button'
@@ -31,8 +31,18 @@ const collisionDetection: CollisionDetection = (args) => {
   return pointer.length ? pointer : closestCorners(args)
 }
 
-export function CommandBoard({ board }: { board: BoardState }) {
+export function CommandBoard({
+  board,
+  top,
+  transcript,
+}: {
+  board: BoardState
+  top: ReactNode
+  transcript: ReactNode
+}) {
   const moveUnit = useBoard((s) => s.moveUnit)
+  const addUnit = useBoard((s) => s.addUnit)
+  const editUnit = useBoard((s) => s.editUnit)
   const addColumn = useBoard((s) => s.addColumn)
   const renameColumn = useBoard((s) => s.renameColumn)
   const setColumnLocation = useBoard((s) => s.setColumnLocation)
@@ -97,7 +107,8 @@ export function CommandBoard({ board }: { board: BoardState }) {
     moveUnit(unitId, to, index)
   }
 
-  const activeUnit = activeId ? UNIT_BY_ID[activeId] : null
+  const unitsById = useMemo(() => unitLookup(board.customUnits), [board.customUnits])
+  const activeUnit = activeId ? unitsById[activeId] : null
   const deleteTarget = board.columns.find((c) => c.id === pendingDelete)
 
   function requestDeleteColumn(id: string) {
@@ -118,31 +129,47 @@ export function CommandBoard({ board }: { board: BoardState }) {
       onDragCancel={() => setActiveId(null)}
     >
       <div className="flex h-full min-h-0 gap-2">
-        <UnitBank bankUnitIds={board.bankUnitIds} onRecoverAll={recoverUnitsToBank} />
+        <UnitBank
+          bankUnitIds={board.bankUnitIds}
+          customUnits={board.customUnits}
+          onAddUnit={addUnit}
+          onEditUnit={editUnit}
+          onRecoverAll={recoverUnitsToBank}
+        />
 
-        <div className="scroll-thin flex min-w-0 flex-1 snap-x gap-2 overflow-x-auto pb-1">
-          {board.columns.map((col, i) => (
-            <CommandColumn
-              key={col.id}
-              column={col}
-              index={i}
-              total={board.columns.length}
-              onRename={renameColumn}
-              onLocation={setColumnLocation}
-              onDelete={requestDeleteColumn}
-              onMove={moveColumnById}
-            />
-          ))}
+        <div className="flex min-w-0 flex-1 flex-col gap-2">
+          {top}
 
-          <div className="flex h-full w-44 shrink-0 items-start pt-1">
-            <Button
-              variant="ghost"
-              onClick={() => addColumn('New Column')}
-              className="w-full border-dashed"
-            >
-              <Plus size={16} /> Add column
-            </Button>
+          <div className="scroll-thin min-h-[210px] flex-1 snap-x overflow-x-auto pb-1">
+            <div className="flex h-full min-w-max gap-2">
+              {board.columns.map((col, i) => (
+                <CommandColumn
+                  key={col.id}
+                  column={col}
+                  index={i}
+                  total={board.columns.length}
+                  onRename={renameColumn}
+                  onLocation={setColumnLocation}
+                  onDelete={requestDeleteColumn}
+                  onMove={moveColumnById}
+                  customUnits={board.customUnits}
+                  unitTimers={board.unitTimers}
+                />
+              ))}
+
+              <div className="flex h-full w-44 shrink-0 items-start pt-1">
+                <Button
+                  variant="ghost"
+                  onClick={() => addColumn('New Column')}
+                  className="w-full border-dashed"
+                >
+                  <Plus size={16} /> Add column
+                </Button>
+              </div>
+            </div>
           </div>
+
+          {transcript}
         </div>
       </div>
 

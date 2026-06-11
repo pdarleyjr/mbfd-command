@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import {
+  ChevronDown,
+  ChevronUp,
   Download,
   Eraser,
   FileJson,
@@ -12,6 +14,7 @@ import {
 import { cn } from '@/lib/cn'
 import type { ConnectionStatus, Incident } from '@/types'
 import { useTranscript } from '@/store/transcriptStore'
+import { listAudioInputs, type AudioInputDevice } from '@/lib/mic'
 import { transcribeClient } from '@/lib/transcribeClient'
 import {
   exportIncidentJson,
@@ -30,9 +33,19 @@ const STATUS_META: Record<ConnectionStatus, { label: string; dot: string; text: 
   error: { label: 'Offline', dot: 'bg-live', text: 'text-live' },
 }
 
-export function TranscriptPanel({ incident }: { incident: Incident }) {
+export function TranscriptPanel({
+  incident,
+  collapsed = false,
+  onCollapsedChange,
+}: {
+  incident: Incident
+  collapsed?: boolean
+  onCollapsedChange?: (collapsed: boolean) => void
+}) {
   const { status, partial, level, error, entries, clear } = useTranscript()
   const [confirmClear, setConfirmClear] = useState(false)
+  const [audioInputs, setAudioInputs] = useState<AudioInputDevice[]>([])
+  const [deviceId, setDeviceId] = useState('')
   const logRef = useRef<HTMLOListElement>(null)
   const stick = useRef(true)
 
@@ -44,6 +57,22 @@ export function TranscriptPanel({ incident }: { incident: Incident }) {
     if (el && stick.current) el.scrollTop = el.scrollHeight
   }, [entries, partial])
 
+  async function refreshAudioInputs() {
+    try {
+      setAudioInputs(await listAudioInputs())
+    } catch {
+      setAudioInputs([])
+    }
+  }
+
+  useEffect(() => {
+    void refreshAudioInputs()
+    const media = navigator.mediaDevices
+    if (!media?.addEventListener) return
+    media.addEventListener('devicechange', refreshAudioInputs)
+    return () => media.removeEventListener('devicechange', refreshAudioInputs)
+  }, [])
+
   function onScroll() {
     const el = logRef.current
     if (!el) return
@@ -52,7 +81,9 @@ export function TranscriptPanel({ incident }: { incident: Incident }) {
 
   const toggle = () => {
     if (listening) void transcribeClient.stop()
-    else void transcribeClient.start(incident.id)
+    else {
+      void transcribeClient.start(incident.id, deviceId || undefined).then(refreshAudioInputs)
+    }
   }
 
   return (
@@ -78,7 +109,31 @@ export function TranscriptPanel({ incident }: { incident: Incident }) {
           </div>
         </div>
 
+        <label className="flex min-w-36 max-w-56 items-center gap-1.5 text-xs font-semibold text-ink-faint">
+          <span className="sr-only">Microphone input</span>
+          <select
+            value={deviceId}
+            onChange={(e) => setDeviceId(e.target.value)}
+            disabled={listening}
+            className="h-9 min-w-0 flex-1 rounded-lg border border-surface-line bg-surface px-2 text-xs font-semibold text-ink-dim focus:outline-none focus:ring-2 focus:ring-go/70 disabled:opacity-60"
+            aria-label="Microphone input"
+          >
+            <option value="">Default microphone</option>
+            {audioInputs.map((input) => (
+              <option key={input.deviceId} value={input.deviceId}>
+                {input.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
         <div className="ml-auto flex items-center gap-1.5">
+          <IconButton
+            label={collapsed ? 'Expand AI dispatch recording panel' : 'Minimize AI dispatch recording panel'}
+            onClick={() => onCollapsedChange?.(!collapsed)}
+          >
+            {collapsed ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+          </IconButton>
           <Button
             variant={listening ? 'live' : 'solid'}
             size="sm"
@@ -103,17 +158,18 @@ export function TranscriptPanel({ incident }: { incident: Incident }) {
         </div>
       </header>
 
-      {error && (
+      {!collapsed && error && (
         <p className="border-b border-live/30 bg-live/10 px-3 py-1.5 text-xs font-medium text-live">
           {error}
         </p>
       )}
 
-      <ol
-        ref={logRef}
-        onScroll={onScroll}
-        className="scroll-thin min-h-0 flex-1 divide-y divide-surface-line/40 overflow-y-auto px-1.5 py-1"
-      >
+      {!collapsed && (
+        <ol
+          ref={logRef}
+          onScroll={onScroll}
+          className="scroll-thin min-h-0 flex-1 divide-y divide-surface-line/40 overflow-y-auto px-1.5 py-1"
+        >
         {entries.length === 0 && !partial && (
           <li className="flex h-full items-center justify-center px-4 py-6 text-center text-sm text-ink-faint">
             <span className="flex items-center gap-2">
@@ -132,7 +188,8 @@ export function TranscriptPanel({ incident }: { incident: Incident }) {
             <span className="min-w-0 flex-1">{partial}</span>
           </li>
         )}
-      </ol>
+        </ol>
+      )}
 
       <ConfirmDialog
         open={confirmClear}

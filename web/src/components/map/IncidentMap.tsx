@@ -34,6 +34,7 @@ export function IncidentMap({ incident }: { incident: Incident }) {
   const setAddress = useBoard((s) => s.setAddress)
   const setMarker = useBoard((s) => s.setMarker)
   const [camera, setCamera] = useState<CameraTarget | null>(null)
+  const [locationStatus, setLocationStatus] = useState<string | null>(null)
 
   const onSelect = useCallback(
     (place: PlaceResult) => {
@@ -54,8 +55,29 @@ export function IncidentMap({ incident }: { incident: Incident }) {
     })
   }
 
+  const useDeviceLocation = () => {
+    if (!navigator.geolocation) {
+      setLocationStatus('Device location is not available')
+      return
+    }
+    setLocationStatus('Finding device location...')
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const target = {
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+        }
+        setMarker(target)
+        setCamera({ ...target, zoom: 17, nonce: Date.now() })
+        setLocationStatus('Map set to device location')
+      },
+      () => setLocationStatus('Location permission denied or unavailable'),
+      { enableHighAccuracy: true, maximumAge: 15000, timeout: 10000 },
+    )
+  }
+
   if (!hasMapsKey) {
-    return <MapPlaceholder incident={incident} onAddress={setAddress} />
+    return <MapPlaceholder incident={incident} onAddress={setAddress} onMarker={setMarker} />
   }
 
   return (
@@ -101,10 +123,20 @@ export function IncidentMap({ incident }: { incident: Incident }) {
           )}
         </div>
 
-        <div className="absolute bottom-2 right-2">
-          <Button size="sm" variant="solid" onClick={recenter} className="shadow-card">
-            <Crosshair size={15} /> Recenter
-          </Button>
+        <div className="pointer-events-none absolute inset-x-2 bottom-2 flex flex-wrap items-end justify-between gap-2">
+          {locationStatus && (
+            <span className="pointer-events-auto rounded-lg border border-surface-line bg-surface/90 px-2 py-1 text-xs font-semibold text-ink-dim shadow-card backdrop-blur-md">
+              {locationStatus}
+            </span>
+          )}
+          <div className="pointer-events-auto ml-auto flex flex-wrap gap-1.5">
+            <Button size="sm" variant="ghost" onClick={useDeviceLocation} className="bg-surface/90 shadow-card backdrop-blur-md">
+              <Crosshair size={15} /> Use my location
+            </Button>
+            <Button size="sm" variant="solid" onClick={recenter} className="shadow-card">
+              <MapPin size={15} /> Recenter
+            </Button>
+          </div>
         </div>
       </APIProvider>
     </div>
@@ -115,11 +147,38 @@ export function IncidentMap({ incident }: { incident: Incident }) {
 function MapPlaceholder({
   incident,
   onAddress,
+  onMarker,
 }: {
   incident: Incident
   onAddress: (a: string) => void
+  onMarker: (marker: { lat: number; lng: number }) => void
 }) {
   const [value, setValue] = useState(incident.address)
+  const [status, setStatus] = useState<string | null>(null)
+
+  const useDeviceLocation = () => {
+    if (!navigator.geolocation) {
+      setStatus('Device location is not available')
+      return
+    }
+    setStatus('Finding device location...')
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const marker = {
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+        }
+        const label = `Device location (${marker.lat.toFixed(5)}, ${marker.lng.toFixed(5)})`
+        onMarker(marker)
+        onAddress(label)
+        setValue(label)
+        setStatus('Device location saved')
+      },
+      () => setStatus('Location permission denied or unavailable'),
+      { enableHighAccuracy: true, maximumAge: 15000, timeout: 10000 },
+    )
+  }
+
   return (
     <div className="relative flex h-full w-full flex-col items-center justify-center gap-3 overflow-hidden rounded-2xl border border-dashed border-surface-line bg-surface/60 px-4 text-center">
       <MapPinOff size={28} className="text-ink-faint" />
@@ -147,6 +206,10 @@ function MapPlaceholder({
           className="h-11 w-full bg-transparent text-sm font-medium text-ink placeholder:text-ink-faint focus:outline-none"
         />
       </form>
+      <Button size="sm" variant="solid" onClick={useDeviceLocation}>
+        <Crosshair size={15} /> Use my location
+      </Button>
+      {status && <p className="text-xs font-semibold text-ink-faint">{status}</p>}
     </div>
   )
 }

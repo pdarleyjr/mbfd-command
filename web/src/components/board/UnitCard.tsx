@@ -6,6 +6,7 @@ import type { Unit } from '@/types'
 
 interface UnitCardProps extends HTMLAttributes<HTMLDivElement> {
   unit: Unit
+  timerLabel?: string
   /** Visual states. */
   dragging?: boolean
   overlay?: boolean
@@ -17,7 +18,7 @@ interface UnitCardProps extends HTMLAttributes<HTMLDivElement> {
  * clear grip affordance. Sized for gloved/rushed tablet use.
  */
 export const UnitCard = forwardRef<HTMLDivElement, UnitCardProps>(function UnitCard(
-  { unit, dragging, overlay, compact, className, ...rest },
+  { unit, timerLabel, dragging, overlay, compact, className, ...rest },
   ref,
 ) {
   const meta = APPARATUS_META[unit.type]
@@ -39,13 +40,20 @@ export const UnitCard = forwardRef<HTMLDivElement, UnitCardProps>(function UnitC
       {...rest}
     >
       <span className={cn('h-9 w-1.5 shrink-0 rounded-full', meta.dot)} aria-hidden />
-      <span
-        className={cn(
-          'tabnum flex-1 truncate font-extrabold leading-none tracking-tight',
-          compact ? 'text-lg' : 'text-xl',
+      <span className="min-w-0 flex-1">
+        <span
+          className={cn(
+            'tabnum block truncate font-extrabold leading-none tracking-tight',
+            compact ? 'text-lg' : 'text-xl',
+          )}
+        >
+          {unit.label}
+        </span>
+        {timerLabel && (
+          <span className="tabnum mt-1 block text-[11px] font-bold leading-none text-ink-faint">
+            {timerLabel}
+          </span>
         )}
-      >
-        {unit.label}
       </span>
       <GripVertical
         size={18}

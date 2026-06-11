@@ -28,12 +28,13 @@
 | Safe degradation on garbled audio | ✅ → `inaudible`, no invented unit |
 | Public URL gated by CF Access | ✅ `/` and `/api/*` → 302 to Access login |
 | `cmd-whisper` model auto-install on startup | ✅ verified ("already installed") |
+| Google Maps key baked into production SPA | ✅ verified in `mbfd-cmd:latest` bundle |
 
 ## Known limitations
 
-- **Google Maps key pending.** Until `VITE_GOOGLE_MAPS_API_KEY` is set and the
-  image rebuilt, the map shows a clean "add a key" placeholder; everything else
-  works. Rebuild step is in [`infra/DEPLOY.md`](../infra/DEPLOY.md) §2.
+- **Google Maps local referrer restriction.** Production has the Maps key baked into
+  the SPA. Local browser testing at `http://127.0.0.1:5180` requires that referrer
+  to be allowed in Google Cloud; otherwise Google returns `RefererNotAllowedMapError`.
 - **STT is CPU `distil-small.en`** (no GPU — CTranslate2 has no ROCm path). Fast
   and good for clear radio; accuracy drops on heavy noise/cross-talk. The model is
   swappable via `CMD_WHISPER_MODEL` (e.g. `…medium.en`) at a latency cost.

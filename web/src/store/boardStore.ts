@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import type { BoardState, Incident, IncidentMarker, Placement } from '@/types'
+import type { ApparatusType, BoardState, Incident, IncidentMarker, Placement } from '@/types'
 import { DEFAULT_COLUMN_TITLES, DEFAULT_UNIT_ORDER } from '@/data/units'
 import * as ops from '@/store/boardOps'
 import { uid } from '@/lib/id'
@@ -26,7 +26,16 @@ function newIncident(name?: string): Incident {
     createdAt: at,
     updatedAt: at,
     closedAt: null,
+    timer: { startedAt: null, accumulatedMs: 0, running: false },
     board: freshBoard(),
+  }
+}
+
+function normalizeIncident(incident: Incident): Incident {
+  return {
+    ...incident,
+    timer: incident.timer ?? { startedAt: null, accumulatedMs: 0, running: false },
+    board: ops.reconcileRoster(incident.board, DEFAULT_UNIT_ORDER),
   }
 }
 
@@ -43,13 +52,19 @@ interface CommandStore {
   closeIncident: (id: string) => void
   reopenIncident: (id: string) => void
   deleteIncident: (id: string) => void
+  applyRemoteIncident: (incident: Incident) => void
 
   // ── Active incident details ───────────────────────────────────────
   setAddress: (address: string) => void
   setMarker: (marker: IncidentMarker | null) => void
+  startIncidentTimer: () => void
+  stopIncidentTimer: () => void
+  resetIncidentTimer: () => void
 
   // ── Board operations (active incident) ────────────────────────────
   moveUnit: (unitId: string, to: Placement, index?: number) => void
+  addUnit: (label: string, type: ApparatusType) => void
+  editUnit: (unitId: string, label: string, type: ApparatusType) => void
   addColumn: (title?: string) => void
   renameColumn: (id: string, title: string) => void
   setColumnLocation: (id: string, location: string) => void
@@ -142,11 +157,59 @@ export const useBoard = create<CommandStore>()(
             return { incidents, activeIncidentId }
           }),
 
+        applyRemoteIncident: (incident) => {
+          const remote = normalizeIncident(incident)
+          set((state) => {
+            const exists = state.incidents.some((inc) => inc.id === remote.id)
+            return {
+              incidents: exists
+                ? state.incidents.map((inc) => (inc.id === remote.id ? remote : inc))
+                : [remote, ...state.incidents],
+              activeIncidentId: remote.id,
+            }
+          })
+        },
+
         setAddress: (address) => patchActive((inc) => ({ ...inc, address })),
         setMarker: (marker) => patchActive((inc) => ({ ...inc, marker })),
 
+        startIncidentTimer: () =>
+          patchActive((inc) => {
+            const timer = inc.timer ?? { startedAt: null, accumulatedMs: 0, running: false }
+            if (timer.running) return inc
+            return { ...inc, timer: { ...timer, startedAt: nowIso(), running: true } }
+          }),
+        stopIncidentTimer: () =>
+          patchActive((inc) => {
+            const timer = inc.timer ?? { startedAt: null, accumulatedMs: 0, running: false }
+            if (!timer.running || !timer.startedAt) return inc
+            return {
+              ...inc,
+              timer: {
+                startedAt: null,
+                accumulatedMs: timer.accumulatedMs + Math.max(0, Date.now() - new Date(timer.startedAt).getTime()),
+                running: false,
+              },
+            }
+          }),
+        resetIncidentTimer: () =>
+          patchActive((inc) => ({
+            ...inc,
+            timer: { startedAt: null, accumulatedMs: 0, running: false },
+          })),
+
         moveUnit: (unitId, to, index) =>
           patchBoard((b) => ops.moveUnit(b, unitId, to, index)),
+        addUnit: (label, type) => {
+          const id = label.trim()
+          if (!id) return
+          patchBoard((b) => ops.addUnit(b, { id, label: id, type }))
+        },
+        editUnit: (unitId, label, type) => {
+          const next = label.trim()
+          if (!next) return
+          patchBoard((b) => ops.editUnit(b, unitId, { id: unitId, label: next, type }))
+        },
         addColumn: (title) => patchBoard((b) => ops.addColumn(b, title)),
         renameColumn: (id, title) => patchBoard((b) => ops.renameColumn(b, id, title)),
         setColumnLocation: (id, location) =>
@@ -156,7 +219,7 @@ export const useBoard = create<CommandStore>()(
         recoverUnitsToBank: () =>
           patchBoard((b) => ops.recoverUnitsToBank(b, DEFAULT_UNIT_ORDER)),
         resetBoard: () => patchActive((inc) => ({ ...inc, board: freshBoard() })),
-        importBoard: (board) => patchBoard(() => board),
+        importBoard: (board) => patchBoard(() => ops.reconcileRoster(board, DEFAULT_UNIT_ORDER)),
       }
     },
     {
@@ -171,8 +234,7 @@ export const useBoard = create<CommandStore>()(
         // Reconcile every board against the current roster so no card is lost
         // if the roster changes between releases.
         state.incidents = state.incidents.map((inc) => ({
-          ...inc,
-          board: ops.reconcileRoster(inc.board, DEFAULT_UNIT_ORDER),
+          ...normalizeIncident(inc),
         }))
         // Guarantee there is always an active, open incident to work in.
         const open = state.incidents.find((i) => i.id === state.activeIncidentId && !i.closedAt)

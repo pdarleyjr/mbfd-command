@@ -25,6 +25,26 @@ describe('moveUnit', () => {
     const next = ops.moveUnit(b, 'E1', { kind: 'column', columnId: colId })
     expect(next.bankUnitIds).not.toContain('E1')
     expect(next.columns[0].unitIds).toEqual(['E1'])
+    expect(next.unitTimers?.E1?.columnId).toBe(colId)
+  })
+
+  it('clears the unit timer when a unit returns to the bank', () => {
+    let b = board()
+    const colId = b.columns[0].id
+    b = ops.moveUnit(b, 'E1', { kind: 'column', columnId: colId })
+    b = ops.moveUnit(b, 'E1', { kind: 'bank' })
+    expect(b.unitTimers?.E1).toBeUndefined()
+  })
+
+  it('restarts the unit timer when a unit changes columns', () => {
+    let b = board()
+    const [a, c] = [b.columns[0].id, b.columns[1].id]
+    b = ops.moveUnit(b, 'E1', { kind: 'column', columnId: a })
+    const first = b.unitTimers?.E1?.startedAt
+    b = ops.moveUnit(b, 'E1', { kind: 'column', columnId: c })
+    expect(first).toBeTruthy()
+    expect(b.unitTimers?.E1?.columnId).toBe(c)
+    expect(b.unitTimers?.E1?.startedAt).toBeTruthy()
   })
 
   it('does not mutate the original board (immutability)', () => {
@@ -65,6 +85,20 @@ describe('moveUnit', () => {
   })
 })
 
+describe('addUnit', () => {
+  it('adds an on-scene unit to the bank and tracks its type', () => {
+    const b = ops.addUnit(board(), { id: 'E5', label: 'E5', type: 'engine' })
+    expect(b.bankUnitIds).toContain('E5')
+    expect(b.customUnits).toContainEqual({ id: 'E5', label: 'E5', type: 'engine' })
+  })
+
+  it('does not duplicate an existing roster unit', () => {
+    const b = ops.addUnit(board(), { id: 'E1', label: 'E1', type: 'engine' })
+    expect(b.bankUnitIds.filter((id) => id === 'E1')).toHaveLength(1)
+    expect(b.customUnits).toEqual([])
+  })
+})
+
 describe('deleteColumn', () => {
   it('returns the column units to the bank by default', () => {
     let b = board()
@@ -94,6 +128,16 @@ describe('moveColumn', () => {
     b = ops.moveColumnById(b, a, 2)
     expect(b.columns[2].id).toBe(a)
     expect(b.columns[2].unitIds).toEqual(['E1'])
+  })
+})
+
+describe('custom unit recovery', () => {
+  it('moves custom units with the rest of the board during recover', () => {
+    let b = ops.addUnit(board(), { id: 'MCI1', label: 'MCI1', type: 'special' })
+    b = ops.moveUnit(b, 'MCI1', { kind: 'column', columnId: b.columns[0].id })
+    b = ops.recoverUnitsToBank(b, UNITS)
+    expect(b.bankUnitIds).toContain('MCI1')
+    expect(b.customUnits?.[0].id).toBe('MCI1')
   })
 })
 

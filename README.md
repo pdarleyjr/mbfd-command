@@ -34,19 +34,18 @@ Deployed (behind Cloudflare Access) at **https://cmd.mbfdhub.com**.
 ## Architecture
 
 ```
-cmd.mbfdhub.com   ── Cloudflare Pages (React 19 + TS + Vite + dnd-kit + Google Maps)
-      │                behind Cloudflare Access
-      │  mic audio (WSS)
-cmd-api.mbfdhub.com ── Cloudflare Tunnel → GMKtec FastAPI gateway (api/)
-      ├─→ cmd-whisper   (faster-whisper / speaches, distil-small.en, CPU)
-      ├─→ Ollama qwen3.6:35b   (mbfd-radio-parser → speaker/intent JSON)
-      └─→ SQLite        (incident sessions, transcript, board snapshots)
+cmd.mbfdhub.com ── Cloudflare Tunnel + Access → GMKtec cmd container
+      │                                      ├─ React/Vite SPA (served from FastAPI)
+      │  mic audio (WSS, same-origin)        ├─ REST API + WebSocket gateway
+      ▼                                      ├─ cmd-whisper (faster-whisper / speaches)
+                                      ├─ Ollama qwen3.6:35b (speaker/intent JSON)
+                                      └─ SQLite (incident sessions, transcript snapshots)
 ```
 
-The frontend works fully on its own (board + map + local persistence). The Python
-gateway only powers live transcription; if it's offline the board still works.
+The SPA, REST API, and mic WebSocket are single-origin behind one Cloudflare Access
+application. The frontend still degrades gracefully if the transcription pipeline is offline.
 
-- [`web/`](web/) — the React/Vite frontend (this is the Cloudflare Pages app).
+- [`web/`](web/) — the React/Vite frontend bundled into the `cmd` image.
 - [`api/`](api/) — the FastAPI transcription gateway (runs on the GMKtec box).
 - [`infra/`](infra/) — Docker Compose + Cloudflare deploy notes.
 - [`docs/`](docs/) — findings report and design notes.
@@ -56,7 +55,7 @@ gateway only powers live transcription; if it's offline the board still works.
 ```bash
 # Frontend
 cd web
-cp .env.example .env.local      # add VITE_GOOGLE_MAPS_API_KEY when you have it
+cp .env.example .env.local      # local key lives here; do not commit it
 npm install
 npm run dev                     # http://localhost:5180
 
@@ -68,7 +67,8 @@ uvicorn app.main:app --reload --port 8200
 ```
 
 Without a Google Maps key the map shows a clean "add a key" placeholder; everything
-else works. Without the backend the transcription panel reports it's offline.
+else works. Local map testing also requires the key to allow localhost referrers.
+Without the backend the transcription panel reports it's offline.
 
 ## Environment variables
 
@@ -87,11 +87,8 @@ See [`web/.env.example`](web/.env.example) and [`api/.env.example`](api/.env.exa
 
 **Live prototype** at https://cmd.mbfdhub.com (behind Cloudflare Access). Deployed on
 the GMKtec via Cloudflare Tunnel; `cmd` + dedicated `cmd-whisper` containers running;
-end-to-end mic → transcript → AI speaker-tagging verified on the box.
-
-**One step remaining:** add the Google Maps API key — set `VITE_GOOGLE_MAPS_API_KEY`
-and rebuild the image ([`infra/DEPLOY.md`](infra/DEPLOY.md) §2). Until then the map
-shows an "add a key" placeholder and everything else works.
+the Google Maps key is baked into the SPA at build time, and end-to-end mic →
+transcript → AI speaker-tagging has been verified on the box.
 
 See [`docs/STATUS.md`](docs/STATUS.md) for the full testing checklist, known
 limitations, and next steps, and [`docs/FINDINGS-fltf2-analysis.md`](docs/FINDINGS-fltf2-analysis.md)

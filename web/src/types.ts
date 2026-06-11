@@ -26,6 +26,17 @@ export interface Column {
   unitIds: string[]
 }
 
+export interface UnitTimer {
+  columnId: string
+  startedAt: string
+}
+
+export interface IncidentTimer {
+  startedAt: string | null
+  accumulatedMs: number
+  running: boolean
+}
+
 /** Placement of every unit: either in the bank pool or inside a column. */
 export type Placement = { kind: 'bank' } | { kind: 'column'; columnId: string }
 
@@ -39,6 +50,10 @@ export interface BoardState {
   columns: Column[]
   /** Units currently sitting in the left-hand bank (ordered). */
   bankUnitIds: string[]
+  /** Units added on scene that are not part of the default roster. */
+  customUnits?: Unit[]
+  /** Per-unit timer that starts whenever a unit is dropped into a column. */
+  unitTimers?: Record<string, UnitTimer>
 }
 
 export interface Incident {
@@ -51,6 +66,7 @@ export interface Incident {
   createdAt: string
   updatedAt: string
   closedAt: string | null
+  timer?: IncidentTimer
   board: BoardState
 }
 

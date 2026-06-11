@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     # Optional: directory of the built SPA to serve at "/" (single-origin deploy).
     static_dir: str = ""
 
+    # ── PulsePoint / live incident feed ──
+    pulsepoint_url: str = "https://pulsepoint-proxy.pdarleyjr.workers.dev/incidents"
+    pulsepoint_cache_ttl_s: int = 60
+
     # ── Streaming segmentation tuning ──
     sample_rate: int = 16000
     partial_interval_s: float = 1.2  # how often to emit interim transcripts

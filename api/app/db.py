@@ -53,6 +53,12 @@ def _init(conn: sqlite3.Connection) -> None:
             json TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS incident_snapshots (
+            channel TEXT PRIMARY KEY,
+            incident_id TEXT NOT NULL,
+            json TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
         """
     )
     conn.commit()
@@ -156,6 +162,36 @@ def _get_board(incident_id: str) -> dict | None:
     return {"board": json.loads(row["json"]), "updatedAt": row["updated_at"]}
 
 
+def _save_incident_snapshot(channel: str, incident_id: str, incident_json: str, now: str) -> None:
+    with _lock:
+        conn = _connect()
+        conn.execute(
+            """INSERT INTO incident_snapshots (channel, incident_id, json, updated_at)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(channel) DO UPDATE SET incident_id=excluded.incident_id,
+                                                     json=excluded.json,
+                                                     updated_at=excluded.updated_at""",
+            (channel, incident_id, incident_json, now),
+        )
+        conn.commit()
+
+
+def _get_incident_snapshot(channel: str) -> dict | None:
+    with _lock:
+        conn = _connect()
+        row = conn.execute(
+            "SELECT incident_id, json, updated_at FROM incident_snapshots WHERE channel = ?",
+            (channel,),
+        ).fetchone()
+    if not row:
+        return None
+    return {
+        "incidentId": row["incident_id"],
+        "incident": json.loads(row["json"]),
+        "updatedAt": row["updated_at"],
+    }
+
+
 # ── Async wrappers ────────────────────────────────────────────────────
 
 
@@ -181,6 +217,19 @@ async def save_board(incident_id: str, board_json: str, now: str) -> None:
 
 async def get_board(incident_id: str) -> dict | None:
     return await asyncio.to_thread(_get_board, incident_id)
+
+
+async def save_incident_snapshot(
+    channel: str,
+    incident_id: str,
+    incident_json: str,
+    now: str,
+) -> None:
+    await asyncio.to_thread(_save_incident_snapshot, channel, incident_id, incident_json, now)
+
+
+async def get_incident_snapshot(channel: str) -> dict | None:
+    return await asyncio.to_thread(_get_incident_snapshot, channel)
 
 
 def init_db() -> None:
