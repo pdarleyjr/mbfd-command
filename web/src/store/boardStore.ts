@@ -234,23 +234,36 @@ export const useBoard = create<CommandStore>()(
         syncPulsePointUnits: (units) =>
           patchBoard((b) => {
             let columns = [...b.columns]
+            // Find or create "Dispatch" column
             let dispatchCol = columns.find(
               (c) => c.title.toLowerCase() === 'dispatch'
             )
             if (!dispatchCol) {
               dispatchCol = ops.makeColumn('Dispatch')
-              columns.unshift(dispatchCol)
+              columns = [dispatchCol, ...columns]
+            } else {
+              // Copy to avoid raw mutation of nested arrays
+              dispatchCol = { ...dispatchCol, unitIds: [...dispatchCol.unitIds] }
+              columns = columns.map((c) => c.id === dispatchCol!.id ? dispatchCol! : c)
             }
 
-            const presentUnitIds = new Set(ops.allUnitIds(b))
+            // Find units already assigned to columns other than Dispatch
+            const assignedUnitIds = new Set<string>()
+            b.columns.forEach((c) => {
+              if (c.title.toLowerCase() !== 'dispatch') {
+                c.unitIds.forEach((uid) => assignedUnitIds.add(uid))
+              }
+            })
+
+            let bankUnitIds = [...b.bankUnitIds]
             const customUnits = [...(b.customUnits ?? [])]
-            const bankUnitIds = [...b.bankUnitIds]
             const unitTimers = { ...(b.unitTimers ?? {}) }
 
             units.forEach((u) => {
               const unitId = u.id.trim()
               if (!unitId) return
 
+              // Ensure the unit is defined
               if (!customUnits.some((cu) => cu.id === unitId)) {
                 let type: ApparatusType = 'special'
                 const label = unitId.toUpperCase()
@@ -263,12 +276,26 @@ export const useBoard = create<CommandStore>()(
                 customUnits.push({ id: unitId, label: unitId, type })
               }
 
-              if (!presentUnitIds.has(unitId)) {
-                dispatchCol!.unitIds.push(unitId)
-                unitTimers[unitId] = {
-                  columnId: dispatchCol!.id,
-                  startedAt: new Date().toISOString(),
-                }
+              // If the unit is already assigned to some OTHER column, leave it there
+              if (assignedUnitIds.has(unitId)) {
+                return
+              }
+
+              // If it's already in the Dispatch column, don't duplicate it
+              if (dispatchCol!.unitIds.includes(unitId)) {
+                return
+              }
+
+              // If it is currently in the bank, remove it from the bank
+              bankUnitIds = bankUnitIds.filter((id) => id !== unitId)
+
+              // Add it to the Dispatch column
+              dispatchCol!.unitIds.push(unitId)
+
+              // Set unit timer
+              unitTimers[unitId] = {
+                columnId: dispatchCol!.id,
+                startedAt: new Date().toISOString(),
               }
             })
 

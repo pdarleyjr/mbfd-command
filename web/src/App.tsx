@@ -108,7 +108,7 @@ export default function App() {
           <CommandBoard
             board={incident.board}
             top={
-              <div className="h-[25dvh] min-h-[160px] max-h-[220px] shrink-0">
+              <div className="h-[35dvh] min-h-[260px] max-h-[360px] shrink-0">
                 <PulsePointIncidentCard onUseIncident={usePulsePointIncident} />
               </div>
             }
