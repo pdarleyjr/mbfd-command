@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { LayoutGrid, Map, Radio } from 'lucide-react'
+import { LayoutGrid, Map, Radio, ClipboardList } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { incidentSyncClient } from '@/lib/incidentSyncClient'
 import { useBoard } from '@/store/boardStore'
@@ -8,6 +8,7 @@ import { CommandBoard } from '@/components/board/CommandBoard'
 import { PulsePointIncidentCard } from '@/components/incidents/PulsePointIncidentCard'
 import { IncidentMap } from '@/components/map/IncidentMap'
 import { TranscriptPanel } from '@/components/transcript/TranscriptPanel'
+import { ChecklistPanel } from '@/components/board/ChecklistPanel'
 import type { PulsePointIncident } from '@/lib/pulsepoint'
 
 export default function App() {
@@ -19,6 +20,9 @@ export default function App() {
   const syncPulsePointUnits = useBoard((s) => s.syncPulsePointUnits)
 
   const [activeTab, setActiveTab] = useState<'board' | 'map' | 'audio'>('board')
+  const [showChecklist, setShowChecklist] = useState(false)
+  const checklist = incident?.checklist ?? []
+  const uncompletedChecklistCount = checklist.filter((item) => !item.completed).length
   const hasIncident = Boolean(incident)
 
   useEffect(() => {
@@ -63,43 +67,66 @@ export default function App() {
       <AppHeader incident={incident} />
 
       {/* Modern High-Contrast Tab Bar */}
-      <nav className="no-print flex shrink-0 border-b border-surface-line px-1.5 py-1 gap-2 bg-surface/45 rounded-xl backdrop-blur-sm">
-        <button
-          onClick={() => setActiveTab('board')}
-          className={cn(
-            "flex items-center gap-2 px-5 py-2.5 font-bold text-sm rounded-lg transition-all touch",
-            activeTab === 'board'
-              ? "bg-go/15 text-go border border-go/40 shadow-card"
-              : "text-ink-dim hover:text-ink hover:bg-surface-high/50 border border-transparent"
-          )}
-        >
-          <LayoutGrid size={16} />
-          BOARD
-        </button>
-        <button
-          onClick={() => setActiveTab('map')}
-          className={cn(
-            "flex items-center gap-2 px-5 py-2.5 font-bold text-sm rounded-lg transition-all touch",
-            activeTab === 'map'
-              ? "bg-go/15 text-go border border-go/40 shadow-card"
-              : "text-ink-dim hover:text-ink hover:bg-surface-high/50 border border-transparent"
-          )}
-        >
-          <Map size={16} />
-          MAP
-        </button>
-        <button
-          onClick={() => setActiveTab('audio')}
-          className={cn(
-            "flex items-center gap-2 px-5 py-2.5 font-bold text-sm rounded-lg transition-all touch",
-            activeTab === 'audio'
-              ? "bg-go/15 text-go border border-go/40 shadow-card"
-              : "text-ink-dim hover:text-ink hover:bg-surface-high/50 border border-transparent"
-          )}
-        >
-          <Radio size={16} />
-          AUDIO
-        </button>
+      <nav className="no-print flex shrink-0 items-center justify-between border-b border-surface-line px-1.5 py-1 bg-surface/45 rounded-xl backdrop-blur-sm">
+        <div className="flex gap-2">
+          <button
+            onClick={() => setActiveTab('board')}
+            className={cn(
+              "flex items-center gap-2 px-5 py-2.5 font-bold text-sm rounded-lg transition-all touch",
+              activeTab === 'board'
+                ? "bg-go/15 text-go border border-go/40 shadow-card"
+                : "text-ink-dim hover:text-ink hover:bg-surface-high/50 border border-transparent"
+            )}
+          >
+            <LayoutGrid size={16} />
+            BOARD
+          </button>
+          <button
+            onClick={() => setActiveTab('map')}
+            className={cn(
+              "flex items-center gap-2 px-5 py-2.5 font-bold text-sm rounded-lg transition-all touch",
+              activeTab === 'map'
+                ? "bg-go/15 text-go border border-go/40 shadow-card"
+                : "text-ink-dim hover:text-ink hover:bg-surface-high/50 border border-transparent"
+            )}
+          >
+            <Map size={16} />
+            MAP
+          </button>
+          <button
+            onClick={() => setActiveTab('audio')}
+            className={cn(
+              "flex items-center gap-2 px-5 py-2.5 font-bold text-sm rounded-lg transition-all touch",
+              activeTab === 'audio'
+                ? "bg-go/15 text-go border border-go/40 shadow-card"
+                : "text-ink-dim hover:text-ink hover:bg-surface-high/50 border border-transparent"
+            )}
+          >
+            <Radio size={16} />
+            AUDIO
+          </button>
+        </div>
+
+        {/* Checklist Toggle Button on the Right */}
+        <div className="flex items-center gap-2 pr-1.5">
+          <button
+            onClick={() => setShowChecklist(!showChecklist)}
+            className={cn(
+              "flex items-center gap-2 px-5 py-2 font-bold text-sm rounded-lg transition-all border touch",
+              showChecklist
+                ? "bg-go/15 text-go border-go/40 shadow-card"
+                : "bg-surface-high/40 text-ink-dim hover:text-ink hover:bg-surface-high/70 border-surface-line"
+            )}
+          >
+            <ClipboardList size={16} />
+            Checklist
+            {uncompletedChecklistCount > 0 && (
+              <span className="tabnum rounded-full bg-live px-1.5 py-0.5 text-[10px] font-bold text-white ml-1 leading-none">
+                {uncompletedChecklistCount}
+              </span>
+            )}
+          </button>
+        </div>
       </nav>
 
       {/* Main Content Area */}
@@ -126,6 +153,11 @@ export default function App() {
           <div className="h-full w-full">
             <TranscriptPanel incident={incident} collapsed={false} />
           </div>
+        )}
+
+        {/* Sliding Checklist Panel overlay */}
+        {showChecklist && (
+          <ChecklistPanel onClose={() => setShowChecklist(false)} />
         )}
       </main>
     </div>

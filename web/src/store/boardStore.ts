@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { ApparatusType, BoardState, Incident, IncidentMarker, Placement } from '@/types'
-import { DEFAULT_COLUMN_TITLES, DEFAULT_UNIT_ORDER } from '@/data/units'
+import { DEFAULT_COLUMN_TITLES, DEFAULT_UNIT_ORDER, DEFAULT_CHECKLIST_ITEMS } from '@/data/units'
 import * as ops from '@/store/boardOps'
 import { uid } from '@/lib/id'
 import { stamp } from '@/lib/format'
@@ -28,6 +28,12 @@ function newIncident(name?: string): Incident {
     closedAt: null,
     timer: { startedAt: null, accumulatedMs: 0, running: false },
     board: freshBoard(),
+    checklist: DEFAULT_CHECKLIST_ITEMS.map((item) => ({
+      id: uid('chk'),
+      text: item.text,
+      category: item.category,
+      completed: false,
+    })),
   }
 }
 
@@ -36,6 +42,12 @@ function normalizeIncident(incident: Incident): Incident {
     ...incident,
     timer: incident.timer ?? { startedAt: null, accumulatedMs: 0, running: false },
     board: ops.reconcileRoster(incident.board, DEFAULT_UNIT_ORDER),
+    checklist: incident.checklist ?? DEFAULT_CHECKLIST_ITEMS.map((item) => ({
+      id: uid('chk'),
+      text: item.text,
+      category: item.category,
+      completed: false,
+    })),
   }
 }
 
@@ -75,6 +87,11 @@ interface CommandStore {
   resetBoard: () => void
   importBoard: (board: BoardState) => void
   syncPulsePointUnits: (units: { id: string }[]) => void
+
+  // ── Checklist operations ──────────────────────────────────────────
+  toggleChecklistItem: (itemId: string) => void
+  addChecklistItem: (text: string, category: 'benchmarks' | 'tactical') => void
+  completeAllChecklistItems: (category: 'benchmarks' | 'tactical') => void
 }
 
 export const useBoard = create<CommandStore>()(
@@ -307,6 +324,39 @@ export const useBoard = create<CommandStore>()(
               unitTimers,
             }
           }),
+
+        toggleChecklistItem: (itemId) =>
+          patchActive((inc) => ({
+            ...inc,
+            checklist: (inc.checklist ?? []).map((item) =>
+              item.id === itemId ? { ...item, completed: !item.completed } : item
+            ),
+          })),
+
+        addChecklistItem: (text, category) => {
+          const trimmed = text.trim()
+          if (!trimmed) return
+          patchActive((inc) => ({
+            ...inc,
+            checklist: [
+              ...(inc.checklist ?? []),
+              {
+                id: uid('chk'),
+                text: trimmed,
+                category,
+                completed: false,
+              },
+            ],
+          }))
+        },
+
+        completeAllChecklistItems: (category) =>
+          patchActive((inc) => ({
+            ...inc,
+            checklist: (inc.checklist ?? []).map((item) =>
+              item.category === category ? { ...item, completed: true } : item
+            ),
+          })),
       }
     },
     {

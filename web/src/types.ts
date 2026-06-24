@@ -58,6 +58,13 @@ export interface BoardState {
   unitTimers?: Record<string, UnitTimer>
 }
 
+export interface ChecklistItem {
+  id: string
+  text: string
+  category: 'benchmarks' | 'tactical'
+  completed: boolean
+}
+
 export interface Incident {
   id: string
   name: string
@@ -70,6 +77,7 @@ export interface Incident {
   closedAt: string | null
   timer?: IncidentTimer
   board: BoardState
+  checklist?: ChecklistItem[]
 }
 
 // ── Live transcription ──────────────────────────────────────────────────────

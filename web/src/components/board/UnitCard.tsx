@@ -11,6 +11,7 @@ interface UnitCardProps extends HTMLAttributes<HTMLDivElement> {
   dragging?: boolean
   overlay?: boolean
   compact?: boolean
+  inColumn?: boolean
 }
 
 /**
@@ -18,7 +19,7 @@ interface UnitCardProps extends HTMLAttributes<HTMLDivElement> {
  * clear grip affordance. Sized for gloved/rushed tablet use.
  */
 export const UnitCard = forwardRef<HTMLDivElement, UnitCardProps>(function UnitCard(
-  { unit, timerLabel, dragging, overlay, compact, className, ...rest },
+  { unit, timerLabel, dragging, overlay, compact, inColumn, className, ...rest },
   ref,
 ) {
   const meta = APPARATUS_META[unit.type]
@@ -27,11 +28,15 @@ export const UnitCard = forwardRef<HTMLDivElement, UnitCardProps>(function UnitC
       ref={ref}
       data-unit-id={unit.id}
       className={cn(
-        'group relative flex touch select-none items-center gap-2 rounded-xl border',
-        'bg-surface-high/90 px-2.5 text-ink shadow-card ring-1 ring-inset',
+        'group relative flex touch select-none items-center gap-1.5 rounded-xl border',
+        'bg-surface-high/90 text-ink shadow-card ring-1 ring-inset',
         meta.chip,
         meta.ring,
-        compact ? 'h-12' : 'h-14',
+        inColumn
+          ? 'h-11 w-[calc(50%-4px)] shrink-0 px-2'
+          : compact
+            ? 'h-12 px-2.5'
+            : 'h-14 px-2.5',
         overlay && 'rotate-1 scale-[1.04] shadow-lift',
         dragging && 'opacity-30',
         'transition-[transform,opacity] duration-100',
@@ -39,27 +44,29 @@ export const UnitCard = forwardRef<HTMLDivElement, UnitCardProps>(function UnitC
       )}
       {...rest}
     >
-      <span className={cn('h-9 w-1.5 shrink-0 rounded-full', meta.dot)} aria-hidden />
+      <span className={cn(inColumn ? 'h-6 w-1' : 'h-9 w-1.5', 'shrink-0 rounded-full', meta.dot)} aria-hidden />
       <span className="min-w-0 flex-1">
         <span
           className={cn(
             'tabnum block truncate font-extrabold leading-none tracking-tight',
-            compact ? 'text-lg' : 'text-xl',
+            inColumn ? 'text-xs' : compact ? 'text-lg' : 'text-xl',
           )}
         >
           {unit.label}
         </span>
         {timerLabel && (
-          <span className="tabnum mt-1 block text-[11px] font-bold leading-none text-ink-faint">
+          <span className={cn('tabnum block leading-none text-ink-faint', inColumn ? 'text-[9px] mt-0.5' : 'text-[11px] mt-1')}>
             {timerLabel}
           </span>
         )}
       </span>
-      <GripVertical
-        size={18}
-        className="shrink-0 text-ink-faint group-hover:text-ink-dim"
-        aria-hidden
-      />
+      {!inColumn && (
+        <GripVertical
+          size={18}
+          className="shrink-0 text-ink-faint group-hover:text-ink-dim"
+          aria-hidden
+        />
+      )}
     </div>
   )
 })

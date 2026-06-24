@@ -94,7 +94,7 @@ export function CommandBoard({
     const interval = setInterval(() => {
       setStartIndex((prev) => {
         const totalItems = board.columns.length + 1
-        const columnWidthWithGap = 264
+        const columnWidthWithGap = 296
         const columnsPerPage = Math.max(1, Math.floor(containerWidth / columnWidthWithGap))
         const maxStart = Math.max(0, totalItems - columnsPerPage)
         return Math.min(maxStart, prev + 1)
@@ -104,7 +104,7 @@ export function CommandBoard({
   }, [isOverRight, board.columns.length, containerWidth])
 
   // Calculate layout pagination parameters
-  const columnWidthWithGap = 264
+  const columnWidthWithGap = 296
   const totalItems = board.columns.length + 1
   const columnsPerPage = Math.max(1, Math.floor(containerWidth / columnWidthWithGap))
   const maxStart = Math.max(0, totalItems - columnsPerPage)
@@ -237,7 +237,7 @@ export function CommandBoard({
                 ))}
 
                 {showAddColumnOnCurrentPage && (
-                  <div className="flex h-full w-64 shrink-0 items-start pt-1">
+                  <div className="flex h-full w-72 shrink-0 items-start pt-1">
                     <Button
                       variant="ghost"
                       onClick={() => addColumn('New Column')}

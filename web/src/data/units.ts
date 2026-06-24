@@ -54,8 +54,30 @@ export const DEFAULT_COLUMN_TITLES: { title: string; location?: string }[] = [
   { title: 'Fire Attack' },
   { title: 'Search' },
   { title: 'RIT' },
+  { title: 'Medical' },
   { title: 'Rehab' },
   { title: 'Vent' },
+]
+
+export const DEFAULT_CHECKLIST_ITEMS: { text: string; category: 'benchmarks' | 'tactical' }[] = [
+  { text: 'Command Established', category: 'benchmarks' },
+  { text: 'Incident Size-Up', category: 'benchmarks' },
+  { text: 'Water Supply', category: 'benchmarks' },
+  { text: '2-Out Established', category: 'benchmarks' },
+  { text: 'Water on Fire', category: 'benchmarks' },
+  { text: 'Primary Search', category: 'benchmarks' },
+  { text: 'RIT Established', category: 'benchmarks' },
+  { text: 'Incident Safety Officer (ISO)', category: 'benchmarks' },
+  { text: 'Fire Under Control', category: 'benchmarks' },
+  { text: 'Secondary Search', category: 'benchmarks' },
+  { text: 'All Clear', category: 'benchmarks' },
+  { text: 'Primary Phase Complete', category: 'benchmarks' },
+  { text: 'Utilities Isolated', category: 'tactical' },
+  { text: 'Ventilation Initiated', category: 'tactical' },
+  { text: 'Air Management Pinned', category: 'tactical' },
+  { text: 'Salvage & Overhaul', category: 'tactical' },
+  { text: 'Rehab Initiated', category: 'tactical' },
+  { text: 'PAR Check Completed', category: 'tactical' },
 ]
 
 /** Human-facing labels + Tailwind accent classes per apparatus type. */

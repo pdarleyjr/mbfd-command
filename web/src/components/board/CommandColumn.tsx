@@ -1,5 +1,5 @@
 import { useDroppable } from '@dnd-kit/core'
-import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import { SortableContext, rectSortingStrategy } from '@dnd-kit/sortable'
 import { ChevronLeft, ChevronRight, MapPin, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { elapsedSince } from '@/lib/format'
@@ -44,7 +44,7 @@ export function CommandColumn({
   return (
     <section
       className={cn(
-        'flex h-full w-64 shrink-0 flex-col rounded-2xl border border-surface-line/70 bg-surface/70',
+        'flex h-full w-72 shrink-0 flex-col rounded-2xl border border-surface-line/70 bg-surface/70',
         'snap-start',
       )}
       aria-label={`Column ${column.title}`}
@@ -103,17 +103,17 @@ export function CommandColumn({
         ref={setNodeRef}
         data-dropzone={column.id}
         className={cn(
-          'scroll-thin flex flex-1 flex-col gap-2 overflow-y-auto p-2 transition-colors',
+          'scroll-thin flex flex-1 flex-row flex-wrap content-start gap-1.5 overflow-y-auto p-2 transition-colors',
           isOver && 'bg-go/5 ring-2 ring-inset ring-go/40',
         )}
       >
-        <SortableContext items={column.unitIds} strategy={verticalListSortingStrategy}>
+        <SortableContext items={column.unitIds} strategy={rectSortingStrategy}>
           {units.map((u) => (
             <SortableUnit
               key={u.id}
               unit={u}
               containerId={column.id}
-              compact
+              inColumn
               timerLabel={
                 unitTimers[u.id]?.columnId === column.id
                   ? elapsedSince(unitTimers[u.id].startedAt, now)

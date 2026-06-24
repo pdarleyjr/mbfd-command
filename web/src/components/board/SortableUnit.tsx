@@ -11,11 +11,13 @@ export function SortableUnit({
   unit,
   containerId,
   compact,
+  inColumn,
   timerLabel,
 }: {
   unit: Unit
   containerId: string
   compact?: boolean
+  inColumn?: boolean
   timerLabel?: string
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -29,6 +31,7 @@ export function SortableUnit({
       unit={unit}
       timerLabel={timerLabel}
       compact={compact}
+      inColumn={inColumn}
       dragging={isDragging}
       style={{ transform: CSS.Translate.toString(transform), transition }}
       {...attributes}
