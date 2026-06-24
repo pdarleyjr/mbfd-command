@@ -24,6 +24,8 @@ export interface Column {
   location: string
   /** Ordered unit ids currently assigned to this column. */
   unitIds: string[]
+  lat?: number
+  lng?: number
 }
 
 export interface UnitTimer {

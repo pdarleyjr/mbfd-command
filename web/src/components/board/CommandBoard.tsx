@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react'
+import { useMemo, useState, useRef, useEffect, type ReactNode } from 'react'
 import {
   DndContext,
   DragOverlay,
@@ -9,12 +9,14 @@ import {
   pointerWithin,
   useSensor,
   useSensors,
+  useDroppable,
   type CollisionDetection,
   type DragEndEvent,
   type DragStartEvent,
 } from '@dnd-kit/core'
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable'
-import { Plus } from 'lucide-react'
+import { Plus, ChevronLeft, ChevronRight } from 'lucide-react'
+import { cn } from '@/lib/cn'
 import type { BoardState, Placement } from '@/types'
 import { unitLookup } from '@/data/units'
 import { findPlacement } from '@/store/boardOps'
@@ -52,6 +54,66 @@ export function CommandBoard({
 
   const [activeId, setActiveId] = useState<string | null>(null)
   const [pendingDelete, setPendingDelete] = useState<string | null>(null)
+  const [startIndex, setStartIndex] = useState(0)
+  const [containerWidth, setContainerWidth] = useState(1024)
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!containerRef.current) return
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setContainerWidth(entry.contentRect.width)
+      }
+    })
+    observer.observe(containerRef.current)
+    return () => observer.disconnect()
+  }, [])
+
+  // Setup droppable areas for left/right arrows during drag
+  const { setNodeRef: leftArrowRef, isOver: isOverLeft } = useDroppable({
+    id: 'left-arrow-trigger',
+    data: { type: 'arrow-left' },
+  })
+
+  const { setNodeRef: rightArrowRef, isOver: isOverRight } = useDroppable({
+    id: 'right-arrow-trigger',
+    data: { type: 'arrow-right' },
+  })
+
+  // Detect and apply automatic page shifting when hovering over arrows while dragging
+  useEffect(() => {
+    if (!isOverLeft) return
+    const interval = setInterval(() => {
+      setStartIndex((prev) => Math.max(0, prev - 1))
+    }, 750)
+    return () => clearInterval(interval)
+  }, [isOverLeft])
+
+  useEffect(() => {
+    if (!isOverRight) return
+    const interval = setInterval(() => {
+      setStartIndex((prev) => {
+        const totalItems = board.columns.length + 1
+        const columnWidthWithGap = 264
+        const columnsPerPage = Math.max(1, Math.floor(containerWidth / columnWidthWithGap))
+        const maxStart = Math.max(0, totalItems - columnsPerPage)
+        return Math.min(maxStart, prev + 1)
+      })
+    }, 750)
+    return () => clearInterval(interval)
+  }, [isOverRight, board.columns.length, containerWidth])
+
+  // Calculate layout pagination parameters
+  const columnWidthWithGap = 264
+  const totalItems = board.columns.length + 1
+  const columnsPerPage = Math.max(1, Math.floor(containerWidth / columnWidthWithGap))
+  const maxStart = Math.max(0, totalItems - columnsPerPage)
+  const clampedStart = Math.min(startIndex, maxStart)
+
+  const visibleColumns = board.columns.slice(clampedStart, clampedStart + columnsPerPage)
+  const showAddColumnOnCurrentPage =
+    (clampedStart + visibleColumns.length < clampedStart + columnsPerPage) ||
+    (clampedStart + columnsPerPage >= totalItems)
 
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
@@ -140,33 +202,70 @@ export function CommandBoard({
         <div className="flex min-w-0 flex-1 flex-col gap-2">
           {top}
 
-          <div className="scroll-thin min-h-[210px] flex-1 snap-x overflow-x-auto pb-1">
-            <div className="flex h-full min-w-max gap-2">
-              {board.columns.map((col, i) => (
-                <CommandColumn
-                  key={col.id}
-                  column={col}
-                  index={i}
-                  total={board.columns.length}
-                  onRename={renameColumn}
-                  onLocation={setColumnLocation}
-                  onDelete={requestDeleteColumn}
-                  onMove={moveColumnById}
-                  customUnits={board.customUnits}
-                  unitTimers={board.unitTimers}
-                />
-              ))}
+          <div className="relative flex-1 min-h-[210px] min-w-0" ref={containerRef}>
+            {/* Left Page Arrow */}
+            {clampedStart > 0 && (
+              <div
+                ref={leftArrowRef}
+                onClick={() => setStartIndex((prev) => Math.max(0, prev - 1))}
+                className={cn(
+                  "absolute left-0 top-0 bottom-0 z-20 w-10 flex items-center justify-center cursor-pointer",
+                  "bg-gradient-to-r from-ground via-ground/80 to-transparent text-ink-dim hover:text-ink transition-all rounded-l-2xl border-l border-surface-line/20",
+                  isOverLeft && "bg-go/20 text-go"
+                )}
+              >
+                <ChevronLeft size={32} />
+              </div>
+            )}
 
-              <div className="flex h-full w-44 shrink-0 items-start pt-1">
-                <Button
-                  variant="ghost"
-                  onClick={() => addColumn('New Column')}
-                  className="w-full border-dashed"
-                >
-                  <Plus size={16} /> Add column
-                </Button>
+            {/* Columns Area */}
+            <div className="h-full w-full overflow-hidden px-1">
+              <div className="flex h-full gap-2 items-stretch py-1">
+                {visibleColumns.map((col, i) => (
+                  <CommandColumn
+                    key={col.id}
+                    column={col}
+                    index={clampedStart + i}
+                    total={board.columns.length}
+                    onRename={renameColumn}
+                    onLocation={setColumnLocation}
+                    onDelete={requestDeleteColumn}
+                    onMove={moveColumnById}
+                    customUnits={board.customUnits}
+                    unitTimers={board.unitTimers}
+                  />
+                ))}
+
+                {showAddColumnOnCurrentPage && (
+                  <div className="flex h-full w-64 shrink-0 items-start pt-1">
+                    <Button
+                      variant="ghost"
+                      onClick={() => addColumn('New Column')}
+                      className="w-full border-dashed min-h-[120px]"
+                    >
+                      <Plus size={16} /> Add column
+                    </Button>
+                  </div>
+                )}
               </div>
             </div>
+
+            {/* Right Page Arrow */}
+            {clampedStart + columnsPerPage < totalItems && (
+              <div
+                ref={rightArrowRef}
+                onClick={() => {
+                  setStartIndex((prev) => Math.min(maxStart, prev + 1))
+                }}
+                className={cn(
+                  "absolute right-0 top-0 bottom-0 z-20 w-10 flex items-center justify-center cursor-pointer",
+                  "bg-gradient-to-l from-ground via-ground/80 to-transparent text-ink-dim hover:text-ink transition-all rounded-r-2xl border-r border-surface-line/20",
+                  isOverRight && "bg-go/20 text-go"
+                )}
+              >
+                <ChevronRight size={32} />
+              </div>
+            )}
           </div>
 
           {transcript}

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ChevronDown, ChevronUp, Map as MapIcon } from 'lucide-react'
+import { LayoutGrid, Map, Radio } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { incidentSyncClient } from '@/lib/incidentSyncClient'
 import { useBoard } from '@/store/boardStore'
@@ -8,7 +8,6 @@ import { CommandBoard } from '@/components/board/CommandBoard'
 import { PulsePointIncidentCard } from '@/components/incidents/PulsePointIncidentCard'
 import { IncidentMap } from '@/components/map/IncidentMap'
 import { TranscriptPanel } from '@/components/transcript/TranscriptPanel'
-import { IconButton } from '@/components/ui/Button'
 import type { PulsePointIncident } from '@/lib/pulsepoint'
 
 export default function App() {
@@ -17,8 +16,9 @@ export default function App() {
   const renameIncident = useBoard((s) => s.renameIncident)
   const setAddress = useBoard((s) => s.setAddress)
   const setMarker = useBoard((s) => s.setMarker)
-  const [mapOpen, setMapOpen] = useState(true)
-  const [transcriptOpen, setTranscriptOpen] = useState(true)
+  const syncPulsePointUnits = useBoard((s) => s.syncPulsePointUnits)
+
+  const [activeTab, setActiveTab] = useState<'board' | 'map' | 'audio'>('board')
   const hasIncident = Boolean(incident)
 
   useEffect(() => {
@@ -38,6 +38,11 @@ export default function App() {
     }
     const name = [run.callType, run.address].filter(Boolean).join(' - ')
     if (name) renameIncident(incident.id, name)
+
+    // Automatically sync units into the "Dispatch" column
+    if (run.units && run.units.length > 0) {
+      syncPulsePointUnits(run.units)
+    }
   }
 
   if (!incident) {
@@ -57,59 +62,71 @@ export default function App() {
     <div className="flex h-full min-h-0 flex-col gap-2 overflow-hidden p-2">
       <AppHeader incident={incident} />
 
-      <main className="min-h-0 flex-1">
-        <CommandBoard
-          board={incident.board}
-          top={
-            <div
-              className={cn(
-                'relative shrink-0 transition-[height] duration-200',
-                mapOpen ? 'h-[32dvh] min-h-[230px]' : 'h-11',
-              )}
-            >
-              {mapOpen ? (
-                <div className="grid h-full min-h-0 grid-cols-[minmax(12rem,1fr)_minmax(0,3fr)] gap-2">
-                  <PulsePointIncidentCard onUseIncident={usePulsePointIncident} />
-                  <div className="relative min-w-0">
-                    <IncidentMap incident={incident} />
-                    <IconButton
-                      label="Collapse map"
-                      onClick={() => setMapOpen(false)}
-                      className="no-print absolute right-2 top-2 z-10 bg-surface/90 backdrop-blur-md"
-                    >
-                      <ChevronUp size={16} />
-                    </IconButton>
-                  </div>
-                </div>
-              ) : (
-                <button
-                  onClick={() => setMapOpen(true)}
-                  className="no-print flex h-full w-full items-center justify-between rounded-2xl border border-surface-line/70 bg-surface/60 px-4 text-sm font-semibold text-ink-dim hover:bg-surface-high/50"
-                >
-                  <span className="flex items-center gap-2">
-                    <MapIcon size={16} className="text-go" />
-                    {incident.address || 'Incident map (collapsed)'}
-                  </span>
-                  <ChevronDown size={16} />
-                </button>
-              )}
-            </div>
-          }
-          transcript={
-            <div
-              className={cn(
-                'shrink-0 transition-[height] duration-200',
-                transcriptOpen ? 'h-[25dvh] min-h-[150px]' : 'h-11',
-              )}
-            >
-              <TranscriptPanel
-                incident={incident}
-                collapsed={!transcriptOpen}
-                onCollapsedChange={(collapsed) => setTranscriptOpen(!collapsed)}
-              />
-            </div>
-          }
-        />
+      {/* Modern High-Contrast Tab Bar */}
+      <nav className="no-print flex shrink-0 border-b border-surface-line px-1.5 py-1 gap-2 bg-surface/45 rounded-xl backdrop-blur-sm">
+        <button
+          onClick={() => setActiveTab('board')}
+          className={cn(
+            "flex items-center gap-2 px-5 py-2.5 font-bold text-sm rounded-lg transition-all touch",
+            activeTab === 'board'
+              ? "bg-go/15 text-go border border-go/40 shadow-card"
+              : "text-ink-dim hover:text-ink hover:bg-surface-high/50 border border-transparent"
+          )}
+        >
+          <LayoutGrid size={16} />
+          BOARD
+        </button>
+        <button
+          onClick={() => setActiveTab('map')}
+          className={cn(
+            "flex items-center gap-2 px-5 py-2.5 font-bold text-sm rounded-lg transition-all touch",
+            activeTab === 'map'
+              ? "bg-go/15 text-go border border-go/40 shadow-card"
+              : "text-ink-dim hover:text-ink hover:bg-surface-high/50 border border-transparent"
+          )}
+        >
+          <Map size={16} />
+          MAP
+        </button>
+        <button
+          onClick={() => setActiveTab('audio')}
+          className={cn(
+            "flex items-center gap-2 px-5 py-2.5 font-bold text-sm rounded-lg transition-all touch",
+            activeTab === 'audio'
+              ? "bg-go/15 text-go border border-go/40 shadow-card"
+              : "text-ink-dim hover:text-ink hover:bg-surface-high/50 border border-transparent"
+          )}
+        >
+          <Radio size={16} />
+          AUDIO
+        </button>
+      </nav>
+
+      {/* Main Content Area */}
+      <main className="min-h-0 flex-1 relative">
+        {activeTab === 'board' && (
+          <CommandBoard
+            board={incident.board}
+            top={
+              <div className="h-[25dvh] min-h-[160px] max-h-[220px] shrink-0">
+                <PulsePointIncidentCard onUseIncident={usePulsePointIncident} />
+              </div>
+            }
+            transcript={null}
+          />
+        )}
+
+        {activeTab === 'map' && (
+          <div className="h-full w-full">
+            <IncidentMap incident={incident} fullPage />
+          </div>
+        )}
+
+        {activeTab === 'audio' && (
+          <div className="h-full w-full">
+            <TranscriptPanel incident={incident} collapsed={false} />
+          </div>
+        )}
       </main>
     </div>
   )

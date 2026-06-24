@@ -68,11 +68,13 @@ interface CommandStore {
   addColumn: (title?: string) => void
   renameColumn: (id: string, title: string) => void
   setColumnLocation: (id: string, location: string) => void
+  setColumnMarker: (columnId: string, lat: number | null, lng: number | null) => void
   deleteColumn: (id: string, dest?: Placement) => void
   moveColumnById: (id: string, toIndex: number) => void
   recoverUnitsToBank: () => void
   resetBoard: () => void
   importBoard: (board: BoardState) => void
+  syncPulsePointUnits: (units: { id: string }[]) => void
 }
 
 export const useBoard = create<CommandStore>()(
@@ -214,12 +216,70 @@ export const useBoard = create<CommandStore>()(
         renameColumn: (id, title) => patchBoard((b) => ops.renameColumn(b, id, title)),
         setColumnLocation: (id, location) =>
           patchBoard((b) => ops.setColumnLocation(b, id, location)),
+        setColumnMarker: (columnId, lat, lng) =>
+          patchBoard((b) => ({
+            ...b,
+            columns: b.columns.map((c) =>
+              c.id === columnId
+                ? { ...c, lat: lat ?? undefined, lng: lng ?? undefined }
+                : c,
+            ),
+          })),
         deleteColumn: (id, dest) => patchBoard((b) => ops.deleteColumn(b, id, dest)),
         moveColumnById: (id, toIndex) => patchBoard((b) => ops.moveColumnById(b, id, toIndex)),
         recoverUnitsToBank: () =>
           patchBoard((b) => ops.recoverUnitsToBank(b, DEFAULT_UNIT_ORDER)),
         resetBoard: () => patchActive((inc) => ({ ...inc, board: freshBoard() })),
         importBoard: (board) => patchBoard(() => ops.reconcileRoster(board, DEFAULT_UNIT_ORDER)),
+        syncPulsePointUnits: (units) =>
+          patchBoard((b) => {
+            let columns = [...b.columns]
+            let dispatchCol = columns.find(
+              (c) => c.title.toLowerCase() === 'dispatch'
+            )
+            if (!dispatchCol) {
+              dispatchCol = ops.makeColumn('Dispatch')
+              columns.unshift(dispatchCol)
+            }
+
+            const presentUnitIds = new Set(ops.allUnitIds(b))
+            const customUnits = [...(b.customUnits ?? [])]
+            const bankUnitIds = [...b.bankUnitIds]
+            const unitTimers = { ...(b.unitTimers ?? {}) }
+
+            units.forEach((u) => {
+              const unitId = u.id.trim()
+              if (!unitId) return
+
+              if (!customUnits.some((cu) => cu.id === unitId)) {
+                let type: ApparatusType = 'special'
+                const label = unitId.toUpperCase()
+                if (label.startsWith('E')) type = 'engine'
+                else if (label.startsWith('L') || label.startsWith('T') || label.startsWith('TRK')) type = 'ladder'
+                else if (label.startsWith('R') || label.startsWith('RE')) type = 'rescue'
+                else if (label.startsWith('F') || label.startsWith('FB')) type = 'fireboat'
+                else if (label.startsWith('C') || label.startsWith('CH') || label.startsWith('CAPT') || label.startsWith('IC')) type = 'command'
+
+                customUnits.push({ id: unitId, label: unitId, type })
+              }
+
+              if (!presentUnitIds.has(unitId)) {
+                dispatchCol!.unitIds.push(unitId)
+                unitTimers[unitId] = {
+                  columnId: dispatchCol!.id,
+                  startedAt: new Date().toISOString(),
+                }
+              }
+            })
+
+            return {
+              ...b,
+              columns,
+              customUnits,
+              bankUnitIds,
+              unitTimers,
+            }
+          }),
       }
     },
     {
