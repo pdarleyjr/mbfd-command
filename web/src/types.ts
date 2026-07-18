@@ -8,6 +8,8 @@ export type ApparatusType =
   | 'fireboat'
   | 'special'
 
+export type IncidentMode = 'scene' | 'special_event'
+
 export interface Unit {
   /** Stable id — the radio designator, e.g. "E1", "R44", "Capt. 5". */
   id: string

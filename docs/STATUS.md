@@ -40,18 +40,17 @@
   swappable via `CMD_WHISPER_MODEL` (e.g. `…medium.en`) at a latency cost.
 - **Mic source.** Transcription captures the browser device's microphone — point
   it at the radio speaker (or use a line-in). It is not a direct CAD/radio feed.
-- **Board↔backend sync is one-way-ready.** Board state persists in the browser
-  (localStorage) and the backend exposes board snapshot endpoints, but the
-  frontend does not yet auto-push snapshots (transcripts ARE stored server-side).
-- **Single-user-ish.** No real-time multi-device board sync yet (each device keeps
-  its own board state). Fine for one command post; see next steps.
+- **Board synchronization is present but V1.** The frontend currently pushes
+  full incident snapshots over `/ws/incident`; the backend persists and fans
+  them out to peers. V1 still uses a single `active` channel and last-writer-wins
+  snapshots, so incident-scoped revisions and command acknowledgements remain
+  required before concurrent multi-incident use.
 - **Prototype, not certified.** Decision-support only; see the in-app disclaimer.
 
 ## Recommended next improvements
 
-1. **Multi-device live board sync** — push board snapshots over the existing
-   `/api/incidents/{id}/board` endpoints (debounced) + a small broadcast channel so
-   the command post, a tablet, and the wall display share one board in real time.
+1. **Harden multi-device live board sync** — replace the V1 global channel with
+   incident-scoped URLs, revisions, idempotent commands, and append-only audit.
 2. **PAR / accountability timer** — periodic PAR prompts keyed off the operation
    clock (the old FLTF2 board had this; high value on the fireground).
 3. **Keyword alerting** — highlight/sound on `mayday`, `water on the fire`,

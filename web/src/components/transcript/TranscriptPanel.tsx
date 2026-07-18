@@ -25,12 +25,12 @@ import { Button, IconButton } from '@/components/ui/Button'
 import { ConfirmDialog } from '@/components/ui/Modal'
 import { TranscriptLine } from './TranscriptLine'
 
-const STATUS_META: Record<ConnectionStatus, { label: string; dot: string; text: string }> = {
+export const STATUS_META: Record<ConnectionStatus, { label: string; dot: string; text: string }> = {
   idle: { label: 'Idle', dot: 'bg-ink-faint', text: 'text-ink-faint' },
   connecting: { label: 'Connecting…', dot: 'bg-warn animate-pulse', text: 'text-warn' },
   listening: { label: 'Listening', dot: 'bg-live animate-pulse-live', text: 'text-live' },
   reconnecting: { label: 'Reconnecting…', dot: 'bg-warn animate-pulse', text: 'text-warn' },
-  error: { label: 'Offline', dot: 'bg-live', text: 'text-live' },
+  error: { label: 'Offline', dot: 'bg-warn', text: 'text-warn' },
 }
 
 export function TranscriptPanel({
@@ -159,7 +159,7 @@ export function TranscriptPanel({
       </header>
 
       {!collapsed && error && (
-        <p className="border-b border-live/30 bg-live/10 px-3 py-1.5 text-xs font-medium text-live">
+        <p className="border-b border-warn/30 bg-warn/10 px-3 py-1.5 text-xs font-medium text-warn">
           {error}
         </p>
       )}

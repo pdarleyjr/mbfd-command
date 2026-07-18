@@ -4,6 +4,13 @@ from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+def require_single_process(worker_count: int) -> None:
+    if worker_count != 1:
+        raise RuntimeError(
+            "CMD_UVICORN_WORKERS must remain 1 while the incident WebSocket hub is in-memory"
+        )
+
+
 class Settings(BaseSettings):
     """Runtime configuration for the cmd-api transcription gateway."""
 
@@ -29,6 +36,7 @@ class Settings(BaseSettings):
 
     # Optional: directory of the built SPA to serve at "/" (single-origin deploy).
     static_dir: str = ""
+    uvicorn_workers: int = 1
 
     # ── PulsePoint / live incident feed ──
     pulsepoint_url: str = "https://pulsepoint-proxy.pdarleyjr.workers.dev/incidents"

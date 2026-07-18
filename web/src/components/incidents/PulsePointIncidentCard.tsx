@@ -12,12 +12,16 @@ import { Button } from '@/components/ui/Button'
 
 interface PulsePointIncidentCardProps {
   className?: string
-  onUseIncident?: (incident: PulsePointIncident) => void
+  actionLabel?: string
+  onAction?: (incident: PulsePointIncident) => void
+  onActiveCountChange?: (count: number) => void
 }
 
 export function PulsePointIncidentCard({
   className,
-  onUseIncident,
+  actionLabel = 'Use',
+  onAction,
+  onActiveCountChange,
 }: PulsePointIncidentCardProps) {
   const [feed, setFeed] = useState<PulsePointFeed | null>(null)
   const [loading, setLoading] = useState(true)
@@ -61,6 +65,10 @@ export function PulsePointIncidentCard({
   const showingRecent = active.length === 0 && recent.length > 0
   const updated = feed ? `Updated ${feedAge(feed.fetchedAt)}` : 'Connecting...'
   const agency = feed?.agency ?? 'X1012'
+
+  useEffect(() => {
+    onActiveCountChange?.(active.length)
+  }, [active.length, onActiveCountChange])
 
   return (
     <aside
@@ -143,7 +151,8 @@ export function PulsePointIncidentCard({
                 key={incident.id}
                 incident={incident}
                 active={!showingRecent}
-                onUseIncident={onUseIncident}
+                actionLabel={actionLabel}
+                onAction={onAction}
               />
             ))}
           </div>
@@ -158,7 +167,7 @@ export function PulsePointIncidentCard({
           href="https://web.pulsepoint.org/?agency=X1012"
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 rounded-md px-1 py-0.5 text-ink-dim hover:text-live focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-go/70"
+          className="touch inline-flex items-center gap-1 rounded-md px-2 py-1 text-ink-dim hover:text-live focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-go/70"
         >
           PulsePoint <ExternalLink size={12} aria-hidden />
         </a>
@@ -211,14 +220,16 @@ function StateMessage({
 function IncidentRow({
   incident,
   active,
-  onUseIncident,
+  actionLabel,
+  onAction,
 }: {
   incident: PulsePointIncident
   active: boolean
-  onUseIncident?: (incident: PulsePointIncident) => void
+  actionLabel: string
+  onAction?: (incident: PulsePointIncident) => void
 }) {
   const units = incident.units ?? []
-  const canUse = Boolean(onUseIncident && (incident.address || (incident.lat && incident.lng)))
+  const canUse = Boolean(onAction && (incident.address || (incident.lat && incident.lng)))
 
   return (
     <article className="rounded-xl border border-surface-line/70 bg-surface-high/45 p-1.5 shadow-card">
@@ -258,10 +269,11 @@ function IncidentRow({
               <Button
                 size="sm"
                 variant="solid"
-                className="ml-auto h-6 min-h-0 px-2 text-[11px]"
-                onClick={() => onUseIncident?.(incident)}
+                className="ml-auto px-3 text-[11px]"
+                aria-label={actionLabel}
+                onClick={() => onAction?.(incident)}
               >
-                Use
+                {actionLabel}
               </Button>
             )}
           </div>

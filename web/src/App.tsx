@@ -5,7 +5,11 @@ import { incidentSyncClient } from '@/lib/incidentSyncClient'
 import { useBoard } from '@/store/boardStore'
 import { AppHeader } from '@/components/shell/AppHeader'
 import { CommandBoard } from '@/components/board/CommandBoard'
-import { PulsePointIncidentCard } from '@/components/incidents/PulsePointIncidentCard'
+import {
+  PulsePointDrawer,
+  readPulsePointCollapsed,
+  type PulsePointAction,
+} from '@/components/incidents/PulsePointDrawer'
 import { IncidentMap } from '@/components/map/IncidentMap'
 import { TranscriptPanel } from '@/components/transcript/TranscriptPanel'
 import { ChecklistPanel } from '@/components/board/ChecklistPanel'
@@ -21,6 +25,7 @@ export default function App() {
 
   const [activeTab, setActiveTab] = useState<'board' | 'map' | 'audio'>('board')
   const [showChecklist, setShowChecklist] = useState(false)
+  const [pulsePointCollapsed, setPulsePointCollapsed] = useState(readPulsePointCollapsed)
   const checklist = incident?.checklist ?? []
   const uncompletedChecklistCount = checklist.filter((item) => !item.completed).length
   const hasIncident = Boolean(incident)
@@ -49,6 +54,11 @@ export default function App() {
     }
   }
 
+  function handlePulsePointAction(action: PulsePointAction) {
+    if (action.kind === 'use_as_scene') usePulsePointIncident(action.incident)
+    // The special-event assignment dialog is introduced with the domain model in Phase 4/5.
+  }
+
   if (!incident) {
     return (
       <div className="flex h-full items-center justify-center">
@@ -68,58 +78,62 @@ export default function App() {
 
       {/* Modern High-Contrast Tab Bar */}
       <nav className="no-print flex shrink-0 items-center justify-between border-b border-surface-line px-1.5 py-1 bg-surface/45 rounded-xl backdrop-blur-sm">
-        <div className="flex gap-2">
+        <div className="flex min-w-0 gap-1 sm:gap-2">
           <button
+            aria-label="Board"
             onClick={() => setActiveTab('board')}
             className={cn(
-              "flex items-center gap-2 px-5 py-2.5 font-bold text-sm rounded-lg transition-all touch",
+              "flex items-center gap-2 px-3 py-2.5 font-bold text-sm rounded-lg transition-all touch sm:px-5",
               activeTab === 'board'
                 ? "bg-go/15 text-go border border-go/40 shadow-card"
                 : "text-ink-dim hover:text-ink hover:bg-surface-high/50 border border-transparent"
             )}
           >
             <LayoutGrid size={16} />
-            BOARD
+            <span className="hidden min-[420px]:inline">BOARD</span>
           </button>
           <button
+            aria-label="Map"
             onClick={() => setActiveTab('map')}
             className={cn(
-              "flex items-center gap-2 px-5 py-2.5 font-bold text-sm rounded-lg transition-all touch",
+              "flex items-center gap-2 px-3 py-2.5 font-bold text-sm rounded-lg transition-all touch sm:px-5",
               activeTab === 'map'
                 ? "bg-go/15 text-go border border-go/40 shadow-card"
                 : "text-ink-dim hover:text-ink hover:bg-surface-high/50 border border-transparent"
             )}
           >
             <Map size={16} />
-            MAP
+            <span className="hidden min-[420px]:inline">MAP</span>
           </button>
           <button
+            aria-label="Audio"
             onClick={() => setActiveTab('audio')}
             className={cn(
-              "flex items-center gap-2 px-5 py-2.5 font-bold text-sm rounded-lg transition-all touch",
+              "flex items-center gap-2 px-3 py-2.5 font-bold text-sm rounded-lg transition-all touch sm:px-5",
               activeTab === 'audio'
                 ? "bg-go/15 text-go border border-go/40 shadow-card"
                 : "text-ink-dim hover:text-ink hover:bg-surface-high/50 border border-transparent"
             )}
           >
             <Radio size={16} />
-            AUDIO
+            <span className="hidden min-[420px]:inline">AUDIO</span>
           </button>
         </div>
 
         {/* Checklist Toggle Button on the Right */}
         <div className="flex items-center gap-2 pr-1.5">
           <button
+            aria-label="Checklist"
             onClick={() => setShowChecklist(!showChecklist)}
             className={cn(
-              "flex items-center gap-2 px-5 py-2 font-bold text-sm rounded-lg transition-all border touch",
+              "flex items-center gap-2 px-3 py-2 font-bold text-sm rounded-lg transition-all border touch sm:px-5",
               showChecklist
                 ? "bg-go/15 text-go border-go/40 shadow-card"
                 : "bg-surface-high/40 text-ink-dim hover:text-ink hover:bg-surface-high/70 border-surface-line"
             )}
           >
             <ClipboardList size={16} />
-            Checklist
+            <span className="hidden sm:inline">Checklist</span>
             {uncompletedChecklistCount > 0 && (
               <span className="tabnum rounded-full bg-live px-1.5 py-0.5 text-[10px] font-bold text-white ml-1 leading-none">
                 {uncompletedChecklistCount}
@@ -134,12 +148,15 @@ export default function App() {
         {activeTab === 'board' && (
           <CommandBoard
             board={incident.board}
-            top={
-              <div className="h-[35dvh] min-h-[260px] max-h-[360px] shrink-0">
-                <PulsePointIncidentCard onUseIncident={usePulsePointIncident} />
-              </div>
+            right={
+              <PulsePointDrawer
+                incidentId={incident.id}
+                mode="scene"
+                collapsed={pulsePointCollapsed}
+                onCollapsedChange={setPulsePointCollapsed}
+                onAction={handlePulsePointAction}
+              />
             }
-            transcript={null}
           />
         )}
 

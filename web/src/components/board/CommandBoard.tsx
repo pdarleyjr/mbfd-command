@@ -33,15 +33,13 @@ const collisionDetection: CollisionDetection = (args) => {
   return pointer.length ? pointer : closestCorners(args)
 }
 
-export function CommandBoard({
-  board,
-  top,
-  transcript,
-}: {
-  board: BoardState
-  top: ReactNode
-  transcript: ReactNode
-}) {
+const COLUMN_WIDTH_WITH_GAP = 296
+
+export function columnsPerPageForWidth(width: number): number {
+  return Math.max(1, Math.floor(width / COLUMN_WIDTH_WITH_GAP))
+}
+
+export function CommandBoard({ board, right }: { board: BoardState; right?: ReactNode }) {
   const moveUnit = useBoard((s) => s.moveUnit)
   const addUnit = useBoard((s) => s.addUnit)
   const editUnit = useBoard((s) => s.editUnit)
@@ -94,8 +92,7 @@ export function CommandBoard({
     const interval = setInterval(() => {
       setStartIndex((prev) => {
         const totalItems = board.columns.length + 1
-        const columnWidthWithGap = 296
-        const columnsPerPage = Math.max(1, Math.floor(containerWidth / columnWidthWithGap))
+        const columnsPerPage = columnsPerPageForWidth(containerWidth)
         const maxStart = Math.max(0, totalItems - columnsPerPage)
         return Math.min(maxStart, prev + 1)
       })
@@ -104,9 +101,8 @@ export function CommandBoard({
   }, [isOverRight, board.columns.length, containerWidth])
 
   // Calculate layout pagination parameters
-  const columnWidthWithGap = 296
   const totalItems = board.columns.length + 1
-  const columnsPerPage = Math.max(1, Math.floor(containerWidth / columnWidthWithGap))
+  const columnsPerPage = columnsPerPageForWidth(containerWidth)
   const maxStart = Math.max(0, totalItems - columnsPerPage)
   const clampedStart = Math.min(startIndex, maxStart)
 
@@ -190,7 +186,7 @@ export function CommandBoard({
       onDragEnd={onDragEnd}
       onDragCancel={() => setActiveId(null)}
     >
-      <div className="flex h-full min-h-0 gap-2">
+      <div className="relative flex h-full min-h-0 gap-2 overflow-hidden">
         <UnitBank
           bankUnitIds={board.bankUnitIds}
           customUnits={board.customUnits}
@@ -200,8 +196,6 @@ export function CommandBoard({
         />
 
         <div className="flex min-w-0 flex-1 flex-col gap-2">
-          {top}
-
           <div className="relative flex-1 min-h-[210px] min-w-0" ref={containerRef}>
             {/* Left Page Arrow */}
             {clampedStart > 0 && (
@@ -267,9 +261,9 @@ export function CommandBoard({
               </div>
             )}
           </div>
-
-          {transcript}
         </div>
+
+        {right}
       </div>
 
       <DragOverlay dropAnimation={{ duration: 160, easing: 'cubic-bezier(0.2, 0, 0, 1)' }}>

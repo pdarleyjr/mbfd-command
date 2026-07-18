@@ -33,7 +33,9 @@ export function UnitBank({
   onEditUnit,
   onRecoverAll,
 }: UnitBankProps) {
-  const [collapsed, setCollapsed] = useState(false)
+  const [collapsed, setCollapsed] = useState(() =>
+    typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches,
+  )
   const [mode, setMode] = useState<'idle' | 'add' | 'edit'>('idle')
   const [filter, setFilter] = useState<UnitFilter>('all')
   const [unitName, setUnitName] = useState('')

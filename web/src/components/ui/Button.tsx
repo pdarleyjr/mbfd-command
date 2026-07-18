@@ -17,7 +17,7 @@ const VARIANTS: Record<Variant, string> = {
 }
 
 const SIZES: Record<Size, string> = {
-  sm: 'h-9 px-3 text-sm gap-1.5',
+  sm: 'h-11 px-3 text-sm gap-1.5 touch',
   md: 'h-11 px-4 text-sm gap-2 touch',
   lg: 'h-12 px-5 text-base gap-2 touch',
 }
@@ -59,7 +59,7 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(functio
       aria-label={label}
       title={label}
       className={cn(
-        'inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border',
+        'touch inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border',
         'transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-go/70',
         'disabled:cursor-not-allowed disabled:opacity-40',
         VARIANTS[variant],

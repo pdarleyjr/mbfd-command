@@ -280,18 +280,11 @@ export const useBoard = create<CommandStore>()(
               const unitId = u.id.trim()
               if (!unitId) return
 
-              // Ensure the unit is defined
-              if (!customUnits.some((cu) => cu.id === unitId)) {
-                let type: ApparatusType = 'special'
-                const label = unitId.toUpperCase()
-                if (label.startsWith('E')) type = 'engine'
-                else if (label.startsWith('L') || label.startsWith('T') || label.startsWith('TRK')) type = 'ladder'
-                else if (label.startsWith('R') || label.startsWith('RE')) type = 'rescue'
-                else if (label.startsWith('F') || label.startsWith('FB')) type = 'fireboat'
-                else if (label.startsWith('C') || label.startsWith('CH') || label.startsWith('CAPT') || label.startsWith('IC')) type = 'command'
-
-                customUnits.push({ id: unitId, label: unitId, type })
-              }
+              // PulsePoint is advisory. Unknown apparatus must be explicitly
+              // confirmed by an operator before it becomes an MBFD board unit.
+              const isKnown =
+                DEFAULT_UNIT_ORDER.includes(unitId) || customUnits.some((cu) => cu.id === unitId)
+              if (!isKnown) return
 
               // If the unit is already assigned to some OTHER column, leave it there
               if (assignedUnitIds.has(unitId)) {

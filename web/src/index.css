@@ -21,6 +21,18 @@
     -webkit-tap-highlight-color: transparent;
   }
 
+  button,
+  [role='button'] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  input:not([type='checkbox']):not([type='radio']),
+  select,
+  textarea {
+    min-height: 44px;
+  }
+
   /* The command surface fills the dynamic viewport with no full-page scroll. */
   #root {
     height: 100dvh;
@@ -58,8 +70,33 @@
 
   /* Minimum comfortable touch target for gloved/rushed use. */
   .touch {
-    min-height: 44px;
-    min-width: 44px;
+    min-height: 44px !important;
+    min-width: 44px !important;
+  }
+
+  .pulsepoint-drawer {
+    width: var(--pulsepoint-drawer-width);
+  }
+}
+
+@media (max-width: 1279px) {
+  .pulsepoint-drawer {
+    position: absolute;
+    inset-block: 0;
+    inset-inline-end: 0;
+    z-index: 30;
+    width: min(var(--pulsepoint-drawer-width), 92vw);
+    max-width: 92vw;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }
 

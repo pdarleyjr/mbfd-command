@@ -1,17 +1,30 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
   APIProvider,
+  AdvancedMarker,
   Map,
-  Marker,
+  Pin,
   InfoWindow,
   useMap,
 } from '@vis.gl/react-google-maps'
-import { Crosshair, MapPin, MapPinOff, Plus, Trash2, Compass, Navigation } from 'lucide-react'
+import { AlertTriangle, Check, Crosshair, MapPin, MapPinOff, Plus, Trash2, Compass, Navigation, Pencil, X } from 'lucide-react'
 import { config, hasMapsKey } from '@/lib/config'
+import { cn } from '@/lib/cn'
 import { useBoard } from '@/store/boardStore'
 import type { Incident } from '@/types'
 import { Button } from '@/components/ui/Button'
 import { AddressSearch, type PlaceResult } from './AddressSearch'
+import { TaskAdvancedMarker } from './TaskAdvancedMarker'
+
+export function locationSuggestionForColumn(
+  currentLocation: string,
+  reverseGeocodedLocation: string,
+): { kind: 'apply' | 'confirm'; value: string } {
+  return {
+    kind: currentLocation.trim() ? 'confirm' : 'apply',
+    value: reverseGeocodedLocation.trim(),
+  }
+}
 
 interface CameraTarget {
   lat: number
@@ -62,11 +75,20 @@ function MapLayout({
   const setAddress = useBoard((s) => s.setAddress)
   const setMarker = useBoard((s) => s.setMarker)
   const setColumnMarker = useBoard((s) => s.setColumnMarker)
+  const setColumnLocation = useBoard((s) => s.setColumnLocation)
   const addColumn = useBoard((s) => s.addColumn)
 
   const [camera, setCamera] = useState<CameraTarget | null>(null)
   const [locationStatus, setLocationStatus] = useState<string | null>(null)
   const [newColTitle, setNewColTitle] = useState('')
+  const [editingColumnPinId, setEditingColumnPinId] = useState<string | null>(null)
+  const [locationSuggestion, setLocationSuggestion] = useState<{
+    columnId: string
+    value: string
+  } | null>(null)
+  const [showTaskPanel, setShowTaskPanel] = useState(() =>
+    typeof window === 'undefined' || window.matchMedia('(min-width: 768px)').matches,
+  )
 
   const onSelect = useCallback(
     (place: PlaceResult) => {
@@ -113,7 +135,30 @@ function MapLayout({
     const lat = center ? center.lat() : (incident.marker?.lat ?? config.map.lat)
     const lng = center ? center.lng() : (incident.marker?.lng ?? config.map.lng)
     setColumnMarker(columnId, lat, lng)
+    setEditingColumnPinId(columnId)
     setCamera({ lat, lng, zoom: 17, nonce: Date.now() })
+  }
+
+  const reverseGeocodeColumn = async (columnId: string, lat: number, lng: number) => {
+    if (!window.google?.maps?.Geocoder) return
+    try {
+      const response = await new google.maps.Geocoder().geocode({ location: { lat, lng } })
+      const value = response.results[0]?.formatted_address?.trim()
+      if (!value) return
+      const column = incident.board.columns.find((item) => item.id === columnId)
+      if (!column) return
+      const suggestion = locationSuggestionForColumn(column.location, value)
+      if (suggestion.kind === 'apply') setColumnLocation(columnId, suggestion.value)
+      else setLocationSuggestion({ columnId, value: suggestion.value })
+    } catch {
+      // Coordinates are already authoritative; reverse-geocoding is an optional aid.
+    }
+  }
+
+  const updateColumnPin = (columnId: string, lat: number, lng: number) => {
+    setColumnMarker(columnId, lat, lng)
+    setEditingColumnPinId(columnId)
+    void reverseGeocodeColumn(columnId, lat, lng)
   }
 
   const recenterColumnPin = (lat: number, lng: number) => {
@@ -137,7 +182,7 @@ function MapLayout({
           lng: incident.marker?.lng ?? config.map.lng,
         }}
         defaultZoom={incident.marker ? 17 : config.map.zoom}
-        mapId={config.googleMapsMapId}
+        mapId={config.googleMapsMapId ?? 'DEMO_MAP_ID'}
         gestureHandling="greedy"
         disableDefaultUI
         zoomControl
@@ -146,32 +191,29 @@ function MapLayout({
         className="h-full w-full"
       >
         {incident.marker && (
-          <Marker
+          <AdvancedMarker
             position={incident.marker}
             draggable
+            clickable
+            title="Incident location. Drag to adjust."
             onDragEnd={(e) => {
               const ll = e.latLng
               if (ll) setMarker({ lat: ll.lat(), lng: ll.lng() })
             }}
-          />
+          >
+            <Pin background="#fb3b4e" borderColor="#e8eef7" glyphColor="#e8eef7" />
+          </AdvancedMarker>
         )}
 
         {columns.map((col) => {
           if (typeof col.lat === 'number' && typeof col.lng === 'number') {
             return (
               <div key={col.id}>
-                <Marker
-                  position={{ lat: col.lat, lng: col.lng }}
-                  draggable
-                  onDragEnd={(e) => {
-                    const ll = e.latLng
-                    if (ll) setColumnMarker(col.id, ll.lat(), ll.lng())
-                  }}
-                  label={{
-                    text: col.title[0]?.toUpperCase() || 'P',
-                    color: '#ffffff',
-                    fontWeight: 'bold',
-                  }}
+                <TaskAdvancedMarker
+                  column={col}
+                  selected={editingColumnPinId === col.id}
+                  onSelect={() => setEditingColumnPinId(col.id)}
+                  onPositionChange={(lat, lng) => updateColumnPin(col.id, lat, lng)}
                 />
                 <InfoWindow
                   position={{ lat: col.lat, lng: col.lng }}
@@ -200,6 +242,71 @@ function MapLayout({
 
         <MapPanner target={camera} />
       </Map>
+
+      {!config.googleMapsMapId && (
+        <div className="pointer-events-none absolute inset-x-2 top-16 z-20 flex justify-center">
+          <p className="pointer-events-auto inline-flex max-w-xl items-center gap-2 rounded-lg border border-warn/35 bg-surface/95 px-3 py-2 text-xs font-semibold text-warn shadow-card">
+            <AlertTriangle size={15} aria-hidden />
+            Configure VITE_GOOGLE_MAPS_MAP_ID before production use of adjustable task pins.
+          </p>
+        </div>
+      )}
+
+      {editingColumnPinId && (() => {
+        const column = columns.find((item) => item.id === editingColumnPinId)
+        if (!column) return null
+        return (
+          <div className="absolute inset-x-2 bottom-16 z-20 flex justify-center">
+            <div className="flex max-w-xl flex-wrap items-center gap-2 rounded-xl border border-go/40 bg-surface/95 px-3 py-2 shadow-lift backdrop-blur-md">
+              <MapPin size={16} className="text-go" aria-hidden />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-extrabold text-ink">Adjusting pin for {column.title}</p>
+                <p className="text-xs text-ink-faint">Drag the marker to the exact location.</p>
+              </div>
+              <Button size="sm" variant="solid" onClick={() => setEditingColumnPinId(null)}>
+                <Check size={14} /> Done
+              </Button>
+              <Button
+                size="sm"
+                variant="danger"
+                onClick={() => {
+                  setColumnMarker(column.id, null, null)
+                  setEditingColumnPinId(null)
+                }}
+              >
+                <Trash2 size={14} /> Remove
+              </Button>
+            </div>
+          </div>
+        )
+      })()}
+
+      {locationSuggestion && (() => {
+        const column = columns.find((item) => item.id === locationSuggestion.columnId)
+        if (!column) return null
+        return (
+          <div className="absolute inset-x-2 bottom-32 z-20 flex justify-center">
+            <div className="max-w-xl rounded-xl border border-surface-line bg-surface/95 p-3 shadow-lift backdrop-blur-md">
+              <p className="text-sm font-semibold text-ink">
+                Use “{locationSuggestion.value}” as this column’s location?
+              </p>
+              <div className="mt-2 flex justify-end gap-2">
+                <Button size="sm" onClick={() => setLocationSuggestion(null)}>Keep current</Button>
+                <Button
+                  size="sm"
+                  variant="solid"
+                  onClick={() => {
+                    setColumnLocation(column.id, locationSuggestion.value)
+                    setLocationSuggestion(null)
+                  }}
+                >
+                  Use location
+                </Button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Search + address overlay */}
       <div className="pointer-events-none absolute inset-x-0 top-0 flex flex-col gap-2 p-2 sm:flex-row sm:items-start sm:justify-between z-10">
@@ -241,9 +348,12 @@ function MapLayout({
   }
 
   return (
-    <div className="flex h-full w-full gap-2 min-h-0">
+    <div className="relative flex h-full w-full gap-2 min-h-0">
       {/* Left Sidebar showing Tasks / Columns list */}
-      <aside className="panel flex h-full w-80 shrink-0 flex-col rounded-2xl overflow-hidden shadow-card">
+      <aside className={cn(
+        'panel absolute inset-y-0 left-0 z-30 h-full w-[min(20rem,88vw)] shrink-0 flex-col overflow-hidden rounded-2xl shadow-lift md:relative md:z-auto md:flex md:w-80 md:shadow-card',
+        showTaskPanel ? 'flex' : 'hidden',
+      )}>
         <header className="flex items-center justify-between gap-1 border-b border-surface-line/60 px-3 py-2 shrink-0">
           <div className="flex items-center gap-1.5">
             <Navigation size={16} className="text-go" />
@@ -252,6 +362,14 @@ function MapLayout({
               {columns.filter((c) => typeof c.lat === 'number').length}/{columns.length}
             </span>
           </div>
+          <button
+            type="button"
+            aria-label="Close task pins"
+            onClick={() => setShowTaskPanel(false)}
+            className="touch inline-flex w-11 items-center justify-center rounded-lg text-ink-dim hover:bg-surface-high hover:text-ink md:hidden"
+          >
+            <X size={18} />
+          </button>
         </header>
 
         {/* Create new task/column from map page */}
@@ -298,15 +416,26 @@ function MapLayout({
                         size="sm"
                         variant="ghost"
                         onClick={() => recenterColumnPin(col.lat!, col.lng!)}
-                        className="flex-1 h-7 min-h-0 text-[10px] py-0 px-2"
+                        className="flex-1 text-[10px] px-2"
                       >
                         <Compass size={11} /> View
                       </Button>
                       <Button
                         size="sm"
+                        variant="solid"
+                        onClick={() => {
+                          setEditingColumnPinId(col.id)
+                          recenterColumnPin(col.lat!, col.lng!)
+                        }}
+                        className="flex-1 h-9 text-[10px] px-2"
+                      >
+                        <Pencil size={11} /> Adjust
+                      </Button>
+                      <Button
+                        size="sm"
                         variant="ghost"
                         onClick={() => setColumnMarker(col.id, null, null)}
-                        className="h-7 min-h-0 text-[10px] text-live hover:bg-live/15 hover:border-live/35 py-0 px-2"
+                        className="h-9 text-[10px] text-live hover:bg-live/15 hover:border-live/35 px-2"
                       >
                         <Trash2 size={11} /> Remove Pin
                       </Button>
@@ -316,7 +445,7 @@ function MapLayout({
                       size="sm"
                       variant="solid"
                       onClick={() => dropColumnPin(col.id)}
-                      className="w-full h-7 min-h-0 text-[10px] py-0 px-2"
+                        className="w-full h-11 text-[10px] px-2"
                     >
                       <MapPin size={11} /> Drop Pin
                     </Button>
@@ -334,6 +463,16 @@ function MapLayout({
       {/* Map Area */}
       <div className="relative flex-1 h-full overflow-hidden rounded-2xl border border-surface-line/70 bg-surface">
         {mapContent}
+        {!showTaskPanel && (
+          <Button
+            size="sm"
+            variant="solid"
+            onClick={() => setShowTaskPanel(true)}
+            className="absolute bottom-3 left-3 z-20 shadow-lift md:hidden"
+          >
+            <Navigation size={15} /> Task Pins
+          </Button>
+        )}
       </div>
     </div>
   )

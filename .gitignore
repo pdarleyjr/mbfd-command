@@ -5,6 +5,9 @@ dist-ssr/
 *.local
 .vite/
 web/stats.html
+web/test-results/
+web/playwright-report/
+web/coverage/
 
 # ── Env & secrets (deny by default) ──────────────────────────────────
 .env

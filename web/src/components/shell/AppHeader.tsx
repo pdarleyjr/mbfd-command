@@ -39,12 +39,12 @@ export function AppHeader({ incident }: { incident: Incident }) {
   }
 
   return (
-    <header className="no-print flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 px-1">
+    <header className="no-print flex shrink-0 flex-wrap items-center gap-x-2 gap-y-2 px-1 sm:gap-x-4">
       <div className="flex items-center gap-2">
         <img
           src="/mbfd-logo.png"
           alt="Miami Beach Fire Department"
-          className="h-12 w-12 shrink-0 object-contain"
+          className="h-10 w-10 shrink-0 object-contain sm:h-12 sm:w-12"
         />
         <div className="leading-none">
           <div className="flex items-center gap-1.5">
@@ -53,18 +53,18 @@ export function AppHeader({ incident }: { incident: Incident }) {
               Prototype
             </span>
           </div>
-          <span className="text-[10px] font-medium uppercase tracking-wider text-ink-faint">
+          <span className="hidden text-[10px] font-medium uppercase tracking-wider text-ink-faint sm:inline">
             Miami Beach Fire Dept · Incident Command
           </span>
         </div>
       </div>
 
-      <div className="flex min-w-0 flex-1 items-center gap-3">
+      <div className="order-3 flex w-full min-w-0 items-center gap-2 sm:order-none sm:w-auto sm:flex-1 sm:gap-3">
         <InlineEdit
           value={incident.name}
           ariaLabel="Incident name"
           onChange={(name) => renameIncident(incident.id, name)}
-          className="truncate text-lg font-bold text-ink"
+          className="truncate text-base font-bold text-ink sm:text-lg"
           inputClassName="text-lg font-bold"
         />
         <div className="flex shrink-0 items-center gap-1.5 rounded-lg bg-surface-high/70 px-2 py-1">
@@ -85,9 +85,9 @@ export function AppHeader({ incident }: { incident: Incident }) {
         </div>
       </div>
 
-      <div className="flex items-center gap-1.5">
+      <div className="ml-auto flex items-center gap-1.5">
         <Button size="sm" variant="ghost" onClick={() => setShowIncidents(true)}>
-          <Layers size={15} /> Incidents
+          <Layers size={15} /> <span className="hidden sm:inline">Incidents</span>
         </Button>
         <IconButton label="New incident" variant="solid" onClick={() => createIncident()}>
           <Plus size={18} />

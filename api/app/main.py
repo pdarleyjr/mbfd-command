@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import db
-from .config import get_settings
+from .config import get_settings, require_single_process
 from .pipeline import StreamSession
 
 logging.basicConfig(level=logging.INFO)
@@ -76,6 +76,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="MBFD Command API", version="0.1.0", lifespan=lifespan)
 
 settings = get_settings()
+require_single_process(settings.uvicorn_workers)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.origins,

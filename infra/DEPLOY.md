@@ -50,6 +50,7 @@ docker build -f api/Dockerfile -t mbfd-cmd:latest \
 
 ```bash
 docker compose -f infra/compose.cmd.yaml up -d
+docker inspect --format='{{json .State.Health}}' cmd-whisper
 docker logs cmd --tail 20          # expect "cmd-api ready" + "serving SPA from /app/static"
 curl -s http://127.0.0.1:8210/api/health   # {"ok":true,...}
 ```
@@ -102,5 +103,7 @@ docker compose -f infra/compose.cmd.yaml up -d
 - `cmd-whisper` is dedicated — it never contends with Open WebUI's shared
   `whisper-stt`.
 - No command data, audio, transcripts, or AI calls leave the homelab.
+- Keep `CMD_UVICORN_WORKERS=1` while the WebSocket hub is in-memory. Multiple
+  workers require Redis or another shared broker first.
 - The DB volume `cmd-data` holds transcripts + board snapshots; back it up with
   the existing Restic→R2 job if desired.
