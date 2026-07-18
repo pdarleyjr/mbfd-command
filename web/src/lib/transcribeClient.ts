@@ -1,183 +1,249 @@
-import type { MessagePriority, MessageType, TranscriptEntry } from '@/types'
+import type { SharedTranscriptionState, TranscriptEntry } from '@/types'
+import { apiBase, wsBase } from '@/lib/config'
 import { uid } from '@/lib/id'
-import { wsBase } from '@/lib/config'
-import { startMic, type MicHandle } from '@/lib/mic'
+import {
+  startMic,
+  type AudioInputProfile,
+  type MicHandle,
+} from '@/lib/mic'
 import { useTranscript } from '@/store/transcriptStore'
 
-/** Shape of a `final` parse message coming back from cmd-api. */
-interface ParsedMessage {
-  speaker: string | null
-  recipient: string | null
-  display_prefix: string
-  raw_text: string
-  corrected_text: string
-  message_type: MessageType
-  priority: MessagePriority
-  confidence: number
-  flags: string[]
-}
+const CLIENT_ID_KEY = 'mbfd-command-client-id'
 
-function toEntry(p: ParsedMessage): TranscriptEntry {
-  return {
-    id: uid('tx'),
-    at: new Date().toISOString(),
-    speaker: p.speaker ?? null,
-    recipient: p.recipient ?? null,
-    displayPrefix: p.display_prefix || 'inaudible',
-    rawText: p.raw_text ?? '',
-    correctedText: p.corrected_text || p.raw_text || '',
-    messageType: p.message_type ?? 'unknown',
-    priority: p.priority ?? 'routine',
-    confidence: typeof p.confidence === 'number' ? p.confidence : 0,
-    flags: Array.isArray(p.flags) ? p.flags : [],
+function clientId(): string {
+  try {
+    const existing = localStorage.getItem(CLIENT_ID_KEY)
+    if (existing) return existing
+    const value = uid('client')
+    localStorage.setItem(CLIENT_ID_KEY, value)
+    return value
+  } catch {
+    return uid('client')
   }
 }
 
-/**
- * Owns the mic → WebSocket → transcript-store pipeline. One instance per app.
- * Designed to fail soft: a backend that's unreachable simply leaves the panel
- * in an `error` state without throwing into React.
- */
+interface CaptureRequest {
+  deviceId?: string
+  profile: AudioInputProfile
+  label: string
+}
+
 class TranscribeClient {
   private ws: WebSocket | null = null
   private mic: MicHandle | null = null
-  private active = false
   private incidentId = ''
+  private leaseId = ''
+  private watching = false
+  private captureRequest: CaptureRequest | null = null
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null
+  readonly clientId = clientId()
 
-  async start(incidentId: string, deviceId?: string): Promise<void> {
-    if (this.active) return
-    this.active = true
+  async watch(incidentId: string): Promise<void> {
+    if (this.watching && this.incidentId === incidentId && this.ws) return
+    await this.unwatch()
+    this.watching = true
     this.incidentId = incidentId
-    const tx = useTranscript.getState()
-    tx.setError(null)
-    tx.setStatus('connecting')
+    const store = useTranscript.getState()
+    store.setStatus(incidentId, 'connecting')
+    store.setError(incidentId, null)
+    void this.hydrate(incidentId)
+    await this.openSocket()
+  }
 
+  async start(
+    incidentId: string,
+    deviceId?: string,
+    profile: AudioInputProfile = 'radio_speaker',
+    label = 'Command device',
+  ): Promise<void> {
+    await this.watch(incidentId)
+    this.captureRequest = { deviceId, profile, label }
+    this.sendControl('transcription.acquire', { captureLabel: label })
+  }
+
+  requestTakeover(label = 'Command device'): void {
+    this.captureRequest ??= { profile: 'radio_speaker', label }
+    this.sendControl('transcription.takeover', { captureLabel: label })
+  }
+
+  async stop(): Promise<void> {
+    this.sendControl('transcription.stop', {})
+    await this.stopMic()
+    this.leaseId = ''
+    this.captureRequest = null
+  }
+
+  async clear(incidentId: string): Promise<void> {
+    const response = await fetch(`${apiBase()}/api/incidents/${encodeURIComponent(incidentId)}/transcript`, {
+      method: 'DELETE', headers: { Accept: 'application/json' },
+    })
+    if (!response.ok) throw new Error(`Could not clear transcript (${response.status})`)
+    useTranscript.getState().clearIncident(incidentId)
+  }
+
+  async unwatch(): Promise<void> {
+    this.watching = false
+    await this.stopMic()
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
+    this.reconnectTimer = null
+    if (this.ws) {
+      this.ws.onclose = null
+      this.ws.close()
+      this.ws = null
+    }
+    this.incidentId = ''
+    this.leaseId = ''
+  }
+
+  private async hydrate(incidentId: string): Promise<void> {
     try {
-      await this.openSocket()
-      this.mic = await startMic(
-        (frame) => {
-          if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(frame)
-        },
-        (level) => useTranscript.getState().setLevel(level),
-        deviceId,
-      )
-      useTranscript.getState().setStatus('listening')
-    } catch (err) {
-      this.active = false
-      const msg = err instanceof Error ? err.message : 'Could not start listening'
-      const tx2 = useTranscript.getState()
-      tx2.setError(humanizeMicError(msg))
-      tx2.setStatus('error')
-      await this.teardown()
+      const response = await fetch(`${apiBase()}/api/incidents/${encodeURIComponent(incidentId)}/transcript`)
+      if (!response.ok) return
+      const payload = await response.json() as { entries?: TranscriptEntry[] }
+      if (this.incidentId === incidentId) {
+        useTranscript.getState().hydrate(incidentId, payload.entries ?? [])
+      }
+    } catch {
+      // Live WebSocket can still provide new entries while history is unavailable.
     }
   }
 
   private openSocket(): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const url = `${wsBase()}/ws/transcribe?incident=${encodeURIComponent(this.incidentId)}`
-      const ws = new WebSocket(url)
-      ws.binaryType = 'arraybuffer'
+    return new Promise<void>((resolve, reject) => {
+      const query = `client=${encodeURIComponent(this.clientId)}` +
+        (this.leaseId ? `&lease=${encodeURIComponent(this.leaseId)}` : '')
+      const ws = new WebSocket(
+        `${wsBase()}/ws/incidents/${encodeURIComponent(this.incidentId)}/audio?${query}`,
+      )
       this.ws = ws
-
+      ws.binaryType = 'arraybuffer'
       const timeout = setTimeout(() => reject(new Error('Transcription server timed out')), 8000)
-
       ws.onopen = () => {
         clearTimeout(timeout)
+        if (this.leaseId && this.captureRequest) void this.beginMic(this.captureRequest)
         resolve()
       }
+      ws.onmessage = (event) => this.onMessage(event)
       ws.onerror = () => {
         clearTimeout(timeout)
         reject(new Error('Cannot reach the transcription server'))
       }
-      ws.onmessage = (e) => this.onMessage(e)
       ws.onclose = () => {
-        if (this.active) {
-          // Unexpected drop while listening.
-          useTranscript.getState().setStatus('reconnecting')
+        if (this.ws === ws) this.ws = null
+        if (this.watching) {
+          useTranscript.getState().setStatus(this.incidentId, 'reconnecting')
           this.reconnect()
         }
       }
+    }).catch((error) => {
+      const message = error instanceof Error ? error.message : 'Transcription connection failed'
+      useTranscript.getState().setError(this.incidentId, message)
+      useTranscript.getState().setStatus(this.incidentId, 'error')
+      throw error
     })
   }
 
-  private onMessage(e: MessageEvent): void {
-    if (typeof e.data !== 'string') return
-    let msg: { type: string; text?: string; message?: string; parsed?: ParsedMessage }
+  private onMessage(event: MessageEvent): void {
+    if (typeof event.data !== 'string' || !this.incidentId) return
+    let message: Record<string, unknown>
     try {
-      msg = JSON.parse(e.data)
+      message = JSON.parse(event.data) as Record<string, unknown>
     } catch {
       return
     }
-    const tx = useTranscript.getState()
-    switch (msg.type) {
-      case 'partial':
-        tx.setPartial(msg.text ?? '')
+    const store = useTranscript.getState()
+    switch (message.type) {
+      case 'transcription.state': {
+        const state = message.state as SharedTranscriptionState
+        store.setState(this.incidentId, state)
+        store.setStatus(this.incidentId, state.enabled ? 'listening' : 'idle')
         break
-      case 'final':
-        if (msg.parsed) tx.addEntry(toEntry(msg.parsed))
+      }
+      case 'transcription.lease_acquired': {
+        const payload = message.payload as { leaseId?: string }
+        if (!payload.leaseId) return
+        this.leaseId = payload.leaseId
+        void this.reopenWithLease()
+        break
+      }
+      case 'transcript.partial':
+        store.setPartial(this.incidentId, String(message.text ?? ''))
+        break
+      case 'transcript.final':
+      case 'transcript.enriched':
+        if (message.entry) store.upsertEntry(this.incidentId, message.entry as TranscriptEntry)
+        break
+      case 'transcript.cleared':
+        store.clearIncident(this.incidentId)
         break
       case 'error':
-        tx.setError(msg.message ?? 'Transcription error')
+        store.setError(this.incidentId, String(message.message ?? 'Transcription error'))
         break
     }
   }
 
-  private reconnectTimer: ReturnType<typeof setTimeout> | null = null
-  private reconnect(): void {
-    if (!this.active || this.reconnectTimer) return
-    this.reconnectTimer = setTimeout(async () => {
-      this.reconnectTimer = null
-      if (!this.active) return
-      try {
-        await this.openSocket()
-        useTranscript.getState().setStatus('listening')
-      } catch {
-        this.reconnect()
-      }
-    }, 2000)
-  }
-
-  async stop(): Promise<void> {
-    this.active = false
-    await this.teardown()
-    useTranscript.getState().setStatus('idle')
-    useTranscript.getState().setPartial('')
-    useTranscript.getState().setLevel(0)
-  }
-
-  private async teardown(): Promise<void> {
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer)
-      this.reconnectTimer = null
-    }
-    await this.mic?.stop()
-    this.mic = null
+  private async reopenWithLease(): Promise<void> {
     if (this.ws) {
       this.ws.onclose = null
-      try {
-        this.ws.close()
-      } catch {
-        /* noop */
-      }
+      this.ws.close()
       this.ws = null
     }
+    await this.openSocket()
+    if (this.heartbeatTimer) clearInterval(this.heartbeatTimer)
+    this.heartbeatTimer = setInterval(() => {
+      this.sendControl('transcription.heartbeat', { leaseId: this.leaseId })
+    }, 4000)
+  }
+
+  private async beginMic(request: CaptureRequest): Promise<void> {
+    if (this.mic) return
+    try {
+      this.mic = await startMic(
+        (frame) => { if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(frame) },
+        (diagnostics) => useTranscript.getState().setDiagnostics(this.incidentId, diagnostics),
+        request.deviceId,
+        request.profile,
+      )
+      useTranscript.getState().setError(this.incidentId, null)
+      useTranscript.getState().setStatus(this.incidentId, 'listening')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not start listening'
+      useTranscript.getState().setError(this.incidentId, humanizeMicError(message))
+      useTranscript.getState().setStatus(this.incidentId, 'error')
+      this.sendControl('transcription.stop', {})
+    }
+  }
+
+  private sendControl(action: string, payload: Record<string, unknown>): void {
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ action, payload }))
+    }
+  }
+
+  private async stopMic(): Promise<void> {
+    if (this.heartbeatTimer) clearInterval(this.heartbeatTimer)
+    this.heartbeatTimer = null
+    await this.mic?.stop()
+    this.mic = null
+    if (this.incidentId) useTranscript.getState().setDiagnostics(this.incidentId, null)
+  }
+
+  private reconnect(): void {
+    if (!this.watching || this.reconnectTimer) return
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null
+      if (this.watching) void this.openSocket().catch(() => this.reconnect())
+    }, 2000)
   }
 }
 
-function humanizeMicError(msg: string): string {
-  if (/Permission|NotAllowed|denied/i.test(msg)) {
-    return 'Microphone permission was blocked. Allow mic access in your browser, then try again.'
-  }
-  if (/NotFound|Requested device/i.test(msg)) {
-    return 'No microphone was found on this device.'
-  }
-  if (/NotReadable|TrackStart/i.test(msg)) {
-    return 'The selected microphone is busy or unavailable. Pick another input or close the app using it.'
-  }
-  if (/secure browser context|mediaDevices/i.test(msg)) {
-    return 'Microphone access requires HTTPS or localhost.'
-  }
-  return msg
+function humanizeMicError(message: string): string {
+  if (/Permission|NotAllowed|denied/i.test(message)) return 'Microphone permission was blocked. Allow mic access, then try again.'
+  if (/NotFound|Requested device/i.test(message)) return 'No microphone was found on this device.'
+  if (/NotReadable|TrackStart/i.test(message)) return 'The selected microphone is busy or unavailable.'
+  if (/secure browser context|mediaDevices/i.test(message)) return 'Microphone access requires HTTPS or localhost.'
+  return message
 }
 
 export const transcribeClient = new TranscribeClient()

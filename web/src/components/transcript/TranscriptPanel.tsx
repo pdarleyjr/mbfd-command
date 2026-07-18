@@ -9,12 +9,13 @@ import {
   MicOff,
   Printer,
   Radio,
+  Settings,
   Sheet,
 } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import type { ConnectionStatus, Incident } from '@/types'
 import { useTranscript } from '@/store/transcriptStore'
-import { listAudioInputs, type AudioInputDevice } from '@/lib/mic'
+import { listAudioInputs, type AudioInputDevice, type AudioInputProfile } from '@/lib/mic'
 import { transcribeClient } from '@/lib/transcribeClient'
 import {
   exportIncidentJson,
@@ -42,14 +43,30 @@ export function TranscriptPanel({
   collapsed?: boolean
   onCollapsedChange?: (collapsed: boolean) => void
 }) {
-  const { status, partial, level, error, entries, clear } = useTranscript()
+  const transcript = useTranscript()
+  const status = transcript.statusByIncident[incident.id] ?? 'idle'
+  const partial = transcript.partialByIncident[incident.id] ?? ''
+  const error = transcript.errorByIncident[incident.id] ?? null
+  const entries = transcript.entriesByIncident[incident.id] ?? []
+  const sharedState = transcript.stateByIncident[incident.id]
+  const diagnostics = transcript.diagnosticsByIncident[incident.id]
   const [confirmClear, setConfirmClear] = useState(false)
   const [audioInputs, setAudioInputs] = useState<AudioInputDevice[]>([])
   const [deviceId, setDeviceId] = useState('')
+  const [profile, setProfile] = useState<AudioInputProfile>('radio_speaker')
+  const [showDiagnostics, setShowDiagnostics] = useState(false)
+  const [health, setHealth] = useState<Record<string, unknown> | null>(null)
+  const [calibration, setCalibration] = useState('')
   const logRef = useRef<HTMLOListElement>(null)
   const stick = useRef(true)
 
-  const listening = status === 'listening' || status === 'connecting' || status === 'reconnecting'
+  const listening = Boolean(sharedState?.enabled)
+  const isCaptureClient = sharedState?.captureClientId === transcribeClient.clientId
+
+  useEffect(() => {
+    void transcribeClient.watch(incident.id)
+    return () => { void transcribeClient.unwatch() }
+  }, [incident.id])
 
   // Auto-scroll to the newest line unless the chief has scrolled up to review.
   useEffect(() => {
@@ -82,8 +99,29 @@ export function TranscriptPanel({
   const toggle = () => {
     if (listening) void transcribeClient.stop()
     else {
-      void transcribeClient.start(incident.id, deviceId || undefined).then(refreshAudioInputs)
+      const label = audioInputs.find((input) => input.deviceId === deviceId)?.label || 'Command device'
+      void transcribeClient.start(incident.id, deviceId || undefined, profile, label).then(refreshAudioInputs)
     }
+  }
+
+  async function loadDiagnostics() {
+    setShowDiagnostics((value) => !value)
+    try {
+      const response = await fetch('/api/transcription/health')
+      if (response.ok) setHealth(await response.json() as Record<string, unknown>)
+    } catch {
+      setHealth({ ok: false })
+    }
+  }
+
+  function calibrate() {
+    setCalibration('Sampling background and radio level for 5 seconds…')
+    window.setTimeout(() => {
+      if (!diagnostics) setCalibration('No input signal was measured. Confirm the selected device.')
+      else if (diagnostics.clippingRatio > 0.01) setCalibration('Input is clipping. Reduce the radio or interface output level.')
+      else if (diagnostics.rms < 0.005) setCalibration('Input is very quiet. Increase source level or verify the cable/profile.')
+      else setCalibration(`Signal looks usable. Noise/voice RMS ${Math.round(diagnostics.rms * 1000) / 10}%, peak ${Math.round(diagnostics.peak * 100)}%.`)
+    }, 5000)
   }
 
   return (
@@ -104,12 +142,12 @@ export function TranscriptPanel({
           <div className="h-1.5 w-20 overflow-hidden rounded-full bg-surface-high">
             <div
               className="h-full rounded-full bg-live transition-[width] duration-100"
-              style={{ width: `${Math.round((listening ? level : 0) * 100)}%` }}
+              style={{ width: `${Math.round((isCaptureClient ? Math.min(1, (diagnostics?.rms ?? 0) * 4) : 0) * 100)}%` }}
             />
           </div>
         </div>
 
-        <label className="flex min-w-36 max-w-56 items-center gap-1.5 text-xs font-semibold text-ink-faint">
+        {(!listening || isCaptureClient) && <label className="flex min-w-36 max-w-56 items-center gap-1.5 text-xs font-semibold text-ink-faint">
           <span className="sr-only">Microphone input</span>
           <select
             value={deviceId}
@@ -125,7 +163,19 @@ export function TranscriptPanel({
               </option>
             ))}
           </select>
-        </label>
+        </label>}
+
+        {(!listening || isCaptureClient) && <select
+          value={profile}
+          onChange={(event) => setProfile(event.target.value as AudioInputProfile)}
+          disabled={listening}
+          className="h-11 rounded-lg border border-surface-line bg-surface px-2 text-xs font-semibold text-ink-dim disabled:opacity-60"
+          aria-label="Audio input profile"
+        >
+          <option value="radio_line">Radio line input</option>
+          <option value="radio_speaker">Radio speaker</option>
+          <option value="room_microphone">Room microphone</option>
+        </select>}
 
         <div className="ml-auto flex items-center gap-1.5">
           <IconButton
@@ -143,6 +193,14 @@ export function TranscriptPanel({
             {listening ? <MicOff size={15} /> : <Mic size={15} />}
             {listening ? 'Stop' : 'Start Listening'}
           </Button>
+          {listening && !isCaptureClient && (
+            <Button size="sm" onClick={() => transcribeClient.requestTakeover('Command device')}>
+              Request Takeover
+            </Button>
+          )}
+          <IconButton label="Transcription diagnostics" onClick={() => void loadDiagnostics()}>
+            <Settings size={16} />
+          </IconButton>
           <IconButton label="Export transcript as CSV" onClick={() => exportTranscriptCsv(incident, entries)} disabled={!entries.length}>
             <Sheet size={16} />
           </IconButton>
@@ -157,6 +215,27 @@ export function TranscriptPanel({
           </IconButton>
         </div>
       </header>
+
+      {!collapsed && sharedState?.enabled && (
+        <div className="border-b border-go/25 bg-go/5 px-3 py-2 text-xs text-ink-dim">
+          <strong className="text-go">Listening from {sharedState.captureLabel || 'capture device'}</strong>
+          {sharedState.startedAt && <> · Started {new Date(sharedState.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</>}
+          <span className="ml-2">All connected incident viewers are receiving this transcript.</span>
+        </div>
+      )}
+
+      {!collapsed && showDiagnostics && (
+        <div className="border-b border-surface-line bg-surface-high/40 px-3 py-2 text-xs text-ink-dim">
+          <div className="flex flex-wrap items-center gap-2">
+            <span>Service: {health && health.ok !== false ? 'reachable' : 'checking / unavailable'}</span>
+            <span>RMS: {diagnostics ? `${Math.round(diagnostics.rms * 1000) / 10}%` : '—'}</span>
+            <span>Peak: {diagnostics ? `${Math.round(diagnostics.peak * 100)}%` : '—'}</span>
+            <span>Clipping: {diagnostics ? `${Math.round(diagnostics.clippingRatio * 10000) / 100}%` : '—'}</span>
+            {isCaptureClient && <Button size="sm" onClick={calibrate}>5-second calibration</Button>}
+          </div>
+          {calibration && <p className="mt-1 text-ink-faint">{calibration}</p>}
+        </div>
+      )}
 
       {!collapsed && error && (
         <p className="border-b border-warn/30 bg-warn/10 px-3 py-1.5 text-xs font-medium text-warn">
@@ -199,8 +278,9 @@ export function TranscriptPanel({
         confirmLabel="Clear transcript"
         onCancel={() => setConfirmClear(false)}
         onConfirm={() => {
-          clear()
-          setConfirmClear(false)
+          void transcribeClient.clear(incident.id)
+            .catch((clearError) => transcript.setError(incident.id, clearError instanceof Error ? clearError.message : 'Clear failed'))
+            .finally(() => setConfirmClear(false))
         }}
       />
     </section>

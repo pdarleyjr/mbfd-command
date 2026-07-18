@@ -33,6 +33,9 @@ venv/
 *.sqlite3
 *.db
 api/data/
+api/tests/fixtures/radio/*.wav
+api/tests/fixtures/radio/manifest.jsonl
+data/stt-benchmark.json
 
 # ── Editor / OS ──────────────────────────────────────────────────────
 .DS_Store

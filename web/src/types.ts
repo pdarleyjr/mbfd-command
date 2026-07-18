@@ -148,3 +148,14 @@ export type ConnectionStatus =
   | 'listening'
   | 'reconnecting'
   | 'error'
+
+export interface SharedTranscriptionState {
+  incidentId: string
+  enabled: boolean
+  captureClientId: string | null
+  captureLabel: string | null
+  leaseId: string | null
+  leaseExpiresAt: string | null
+  startedAt: string | null
+  lastAudioAt: string | null
+}

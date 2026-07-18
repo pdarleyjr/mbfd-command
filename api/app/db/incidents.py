@@ -158,6 +158,57 @@ class IncidentRepository:
             "action": action, "payload": payload,
         }, False)
 
+    def append_event(
+        self,
+        incident_id: str,
+        action: str,
+        payload: dict[str, Any],
+        *,
+        client_id: str,
+        command_id: str,
+    ) -> dict[str, Any]:
+        """Append an audited non-snapshot mutation and advance canonical revision."""
+        now = datetime.now(timezone.utc).isoformat()
+        with db_connection(self.path) as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                duplicate = conn.execute(
+                    "SELECT * FROM incident_events WHERE incident_id=? AND idempotency_key=?",
+                    (incident_id, command_id),
+                ).fetchone()
+                if duplicate:
+                    conn.rollback()
+                    return _event_from_row(duplicate)
+                row = conn.execute(
+                    "SELECT snapshot_json, revision FROM incident_snapshots WHERE incident_id=?",
+                    (incident_id,),
+                ).fetchone()
+                if row is None:
+                    raise KeyError(incident_id)
+                revision = int(row["revision"]) + 1
+                snapshot = normalize_incident_snapshot(json.loads(row["snapshot_json"]), revision=revision)
+                snapshot["updatedAt"] = now
+                _insert_snapshot(conn, snapshot)
+                event_id = f"evt_{uuid4().hex}"
+                event_payload = {**payload, "snapshot": snapshot}
+                conn.execute(
+                    """INSERT INTO incident_events
+                       (id, incident_id, revision, event_type, actor_client_id,
+                        payload_json, idempotency_key, occurred_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (event_id, incident_id, revision, action, client_id,
+                     json.dumps(event_payload), command_id, now),
+                )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+        return {
+            "type": "event", "eventId": event_id, "incidentId": incident_id,
+            "revision": revision, "serverAt": now, "actorClientId": client_id,
+            "action": action, "payload": event_payload,
+        }
+
 
 class RevisionConflict(Exception):
     def __init__(self, current_revision: int):

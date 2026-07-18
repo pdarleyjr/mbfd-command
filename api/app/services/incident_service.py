@@ -49,6 +49,15 @@ class IncidentService:
             command_id=command.command_id,
         )
 
+    async def append_event(
+        self, incident_id: str, action: str, payload: dict[str, Any],
+        *, client_id: str, command_id: str,
+    ) -> dict[str, Any]:
+        return await asyncio.to_thread(
+            self.repository.append_event, incident_id, action, payload,
+            client_id=client_id, command_id=command_id,
+        )
+
 
 class UnsupportedCommand(Exception):
     pass

@@ -48,7 +48,7 @@ async def ensure_model_installed(client: httpx.AsyncClient) -> None:
         log.warning("could not ensure whisper model (will retry on demand): %s", exc)
 
 
-async def transcribe(pcm: bytes, client: httpx.AsyncClient) -> str:
+async def transcribe(pcm: bytes, client: httpx.AsyncClient, prompt: str = "") -> str:
     """Transcribe a PCM16 buffer via the speaches/faster-whisper endpoint."""
     if not pcm:
         return ""
@@ -61,6 +61,8 @@ async def transcribe(pcm: bytes, client: httpx.AsyncClient) -> str:
         "response_format": "json",
         "temperature": "0",
     }
+    if prompt:
+        data["prompt"] = prompt
     try:
         resp = await client.post(
             f"{s.whisper_url}/v1/audio/transcriptions",

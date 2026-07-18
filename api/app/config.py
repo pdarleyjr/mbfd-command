@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     whisper_url: str = "http://whisper-stt:8000"
     whisper_model: str = "Systran/faster-distil-whisper-small.en"
     whisper_language: str = "en"
+    stt_backend: str = "speaches"
 
     # ── LLM radio parser (Ollama) ──
     ollama_url: str = "http://host.docker.internal:11434"
@@ -45,10 +46,16 @@ class Settings(BaseSettings):
 
     # ── Streaming segmentation tuning ──
     sample_rate: int = 16000
-    partial_interval_s: float = 1.2  # how often to emit interim transcripts
-    endpoint_silence_ms: int = 700  # trailing silence that finalizes a segment
-    max_segment_s: float = 15.0  # force-finalize a segment after this long
-    min_segment_ms: int = 400  # ignore blips shorter than this
+    transcript_partials_enabled: bool = False
+    partial_interval_s: float = 2.5
+    endpoint_silence_ms: int = 450
+    max_segment_s: float = 8.0
+    min_segment_ms: int = 250
+    audio_pre_roll_ms: int = 200
+    vad_mode: int = 2
+    final_queue_size: int = 4
+    enrichment_queue_size: int = 8
+    transcription_lease_ttl_s: int = 10
 
     @property
     def origins(self) -> list[str]:
