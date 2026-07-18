@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     # Optional: directory of the built SPA to serve at "/" (single-origin deploy).
     static_dir: str = ""
     uvicorn_workers: int = 1
+    realtime_v2: bool = True
 
     # ── PulsePoint / live incident feed ──
     pulsepoint_url: str = "https://pulsepoint-proxy.pdarleyjr.workers.dev/incidents"

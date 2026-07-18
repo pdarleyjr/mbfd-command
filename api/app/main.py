@@ -8,6 +8,7 @@ from time import monotonic
 
 import httpx
 from fastapi import Body, FastAPI, WebSocket, WebSocketDisconnect
+from pydantic import ValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -15,43 +16,17 @@ from fastapi.staticfiles import StaticFiles
 from . import db
 from .config import get_settings, require_single_process
 from .pipeline import StreamSession
+from .db.incidents import RevisionConflict
+from .domain.commands import IncidentCommand
+from .realtime.hub import IncidentHub
+from .routers.incidents import router as incidents_router
+from .services.incident_service import IncidentService, UnsupportedCommand
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("cmd-api")
 
 
-class IncidentSyncHub:
-    """In-memory WebSocket fan-out for the current live command board."""
-
-    def __init__(self) -> None:
-        self._channels: dict[str, set[WebSocket]] = {}
-
-    def connect(self, channel: str, ws: WebSocket) -> None:
-        self._channels.setdefault(channel, set()).add(ws)
-
-    def disconnect(self, channel: str, ws: WebSocket) -> None:
-        peers = self._channels.get(channel)
-        if not peers:
-            return
-        peers.discard(ws)
-        if not peers:
-            self._channels.pop(channel, None)
-
-    async def broadcast(self, channel: str, payload: dict, skip: WebSocket | None = None) -> None:
-        peers = list(self._channels.get(channel, set()))
-        stale: list[WebSocket] = []
-        for peer in peers:
-            if peer is skip:
-                continue
-            try:
-                await peer.send_json(payload)
-            except Exception:
-                stale.append(peer)
-        for peer in stale:
-            self.disconnect(channel, peer)
-
-
-incident_sync = IncidentSyncHub()
+incident_hub = IncidentHub()
 
 
 @asynccontextmanager
@@ -84,6 +59,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.include_router(incidents_router)
 
 
 @app.get("/api/health")
@@ -167,50 +143,87 @@ async def transcribe_ws(ws: WebSocket) -> None:
         await session.close()
 
 
-@app.websocket("/ws/incident")
-async def incident_ws(ws: WebSocket) -> None:
-    """Broadcast full incident snapshots so open command boards stay in sync."""
+@app.websocket("/ws/incidents/{incident_id}")
+async def incident_ws(ws: WebSocket, incident_id: str) -> None:
     await ws.accept()
-    channel = ws.query_params.get("channel", "active") or "active"
-    client_id = ws.query_params.get("client", "unknown") or "unknown"
-    incident_sync.connect(channel, ws)
-    snapshot = await db.get_incident_snapshot(channel)
+    client_id = ws.query_params.get("client") or "unknown"
+    try:
+        last_revision = max(0, int(ws.query_params.get("lastRevision") or 0))
+    except ValueError:
+        last_revision = 0
+    await incident_hub.connect(incident_id, ws)
+    service = IncidentService()
+    snapshot = await service.get_snapshot(incident_id)
     await ws.send_json(
         {
-            "type": "ready",
-            "channel": channel,
-            "clientId": "server",
+            "type": "snapshot",
+            "incidentId": incident_id,
+            "revision": int(snapshot.get("revision", 0)) if snapshot else 0,
             "snapshot": snapshot,
         }
     )
 
     try:
         while True:
-            msg = await ws.receive_json()
-            if msg.get("type") != "incident.update":
+            raw = await ws.receive_json()
+            try:
+                command = IncidentCommand.model_validate(raw)
+            except ValidationError:
+                await ws.send_json(
+                    {
+                        "type": "command.rejected",
+                        "commandId": str(raw.get("commandId") or "unknown"),
+                        "incidentId": incident_id,
+                        "reason": "invalid_command",
+                        "currentRevision": int((await service.get_snapshot(incident_id) or {}).get("revision", 0)),
+                    }
+                )
                 continue
-            incident = msg.get("incident")
-            if not isinstance(incident, dict):
+            if command.incident_id != incident_id:
+                await ws.send_json(
+                    {
+                        "type": "command.rejected",
+                        "commandId": command.command_id,
+                        "incidentId": incident_id,
+                        "reason": "incident_mismatch",
+                        "currentRevision": int((await service.get_snapshot(incident_id) or {}).get("revision", 0)),
+                    }
+                )
                 continue
-            incident_id = str(incident.get("id") or channel)
-            now = datetime.now(timezone.utc).isoformat()
-            await db.ensure_incident(incident_id, now)
-            await db.save_incident_snapshot(channel, incident_id, json.dumps(incident), now)
-            payload = {
-                "type": "incident.snapshot",
-                "channel": channel,
-                "clientId": msg.get("clientId") or client_id,
-                "incident": incident,
-                "updatedAt": now,
-            }
-            await incident_sync.broadcast(channel, payload, skip=ws)
-            await ws.send_json({"type": "incident.ack", "updatedAt": now})
+            try:
+                event, duplicate = await service.apply_command(incident_id, client_id, command)
+            except RevisionConflict as exc:
+                await ws.send_json(
+                    {
+                        "type": "command.rejected",
+                        "commandId": command.command_id,
+                        "incidentId": incident_id,
+                        "reason": "revision_conflict",
+                        "currentRevision": exc.current_revision,
+                    }
+                )
+                continue
+            except UnsupportedCommand:
+                await ws.send_json(
+                    {
+                        "type": "command.rejected",
+                        "commandId": command.command_id,
+                        "incidentId": incident_id,
+                        "reason": "unsupported_action",
+                        "currentRevision": int((await service.get_snapshot(incident_id) or {}).get("revision", 0)),
+                    }
+                )
+                continue
+            if duplicate:
+                await incident_hub.send_one(ws, event)
+            else:
+                await incident_hub.broadcast(incident_id, event)
     except WebSocketDisconnect:
         pass
     except Exception as exc:  # pragma: no cover
         log.warning("incident sync ws error: %s", exc)
     finally:
-        incident_sync.disconnect(channel, ws)
+        await incident_hub.disconnect(incident_id, ws)
 
 
 @app.get("/api/incidents/{incident_id}/transcript")

@@ -49,6 +49,22 @@ export interface IncidentMarker {
   lng: number
 }
 
+export interface GeoLocation {
+  label: string
+  address: string
+  lat: number | null
+  lng: number | null
+}
+
+export type IncidentLifecycleStatus = 'draft' | 'scheduled' | 'active' | 'ended' | 'closed'
+
+export interface IncidentSchedule {
+  scheduledStartAt: string | null
+  scheduledEndAt: string | null
+  actualStartAt: string | null
+  actualEndAt: string | null
+}
+
 export interface BoardState {
   /** Column order is the array order. */
   columns: Column[]
@@ -68,15 +84,21 @@ export interface ChecklistItem {
 }
 
 export interface Incident {
+  schemaVersion: 2
   id: string
+  mode: IncidentMode
   name: string
   /** Free-text incident address shown on the map header. */
   address: string
   marker: IncidentMarker | null
+  commandPost: GeoLocation | null
+  lifecycleStatus: IncidentLifecycleStatus
+  schedule: IncidentSchedule
   /** ISO timestamps. */
   createdAt: string
   updatedAt: string
   closedAt: string | null
+  revision: number
   timer?: IncidentTimer
   board: BoardState
   checklist?: ChecklistItem[]

@@ -19,13 +19,24 @@ function freshBoard(): BoardState {
 function newIncident(name?: string): Incident {
   const at = nowIso()
   return {
+    schemaVersion: 2,
     id: uid('inc'),
+    mode: 'scene',
     name: name?.trim() || `Incident — ${stamp(at)}`,
     address: '',
     marker: null,
+    commandPost: null,
+    lifecycleStatus: 'active',
+    schedule: {
+      scheduledStartAt: null,
+      scheduledEndAt: null,
+      actualStartAt: at,
+      actualEndAt: null,
+    },
     createdAt: at,
     updatedAt: at,
     closedAt: null,
+    revision: 0,
     timer: { startedAt: null, accumulatedMs: 0, running: false },
     board: freshBoard(),
     checklist: DEFAULT_CHECKLIST_ITEMS.map((item) => ({
@@ -37,10 +48,26 @@ function newIncident(name?: string): Incident {
   }
 }
 
-function normalizeIncident(incident: Incident): Incident {
+export function normalizeIncidentV2(incident: Partial<Incident> & Pick<Incident, 'id' | 'name' | 'createdAt' | 'updatedAt' | 'board'>): Incident {
+  const closedAt = incident.closedAt ?? null
+  const timer = incident.timer ?? { startedAt: null, accumulatedMs: 0, running: false }
   return {
     ...incident,
-    timer: incident.timer ?? { startedAt: null, accumulatedMs: 0, running: false },
+    schemaVersion: 2,
+    mode: incident.mode ?? 'scene',
+    address: incident.address ?? '',
+    marker: incident.marker ?? null,
+    commandPost: incident.commandPost ?? null,
+    lifecycleStatus: incident.lifecycleStatus ?? (closedAt ? 'closed' : 'active'),
+    schedule: incident.schedule ?? {
+      scheduledStartAt: null,
+      scheduledEndAt: null,
+      actualStartAt: timer.startedAt ?? incident.createdAt,
+      actualEndAt: closedAt,
+    },
+    closedAt,
+    revision: Math.max(0, incident.revision ?? 0),
+    timer,
     board: ops.reconcileRoster(incident.board, DEFAULT_UNIT_ORDER),
     checklist: incident.checklist ?? DEFAULT_CHECKLIST_ITEMS.map((item) => ({
       id: uid('chk'),
@@ -177,14 +204,13 @@ export const useBoard = create<CommandStore>()(
           }),
 
         applyRemoteIncident: (incident) => {
-          const remote = normalizeIncident(incident)
+          const remote = normalizeIncidentV2(incident)
           set((state) => {
             const exists = state.incidents.some((inc) => inc.id === remote.id)
             return {
               incidents: exists
                 ? state.incidents.map((inc) => (inc.id === remote.id ? remote : inc))
                 : [remote, ...state.incidents],
-              activeIncidentId: remote.id,
             }
           })
         },
@@ -354,7 +380,7 @@ export const useBoard = create<CommandStore>()(
     },
     {
       name: STORAGE_KEY,
-      version: 1,
+      version: 2,
       partialize: (state) => ({
         incidents: state.incidents,
         activeIncidentId: state.activeIncidentId,
@@ -364,7 +390,7 @@ export const useBoard = create<CommandStore>()(
         // Reconcile every board against the current roster so no card is lost
         // if the roster changes between releases.
         state.incidents = state.incidents.map((inc) => ({
-          ...normalizeIncident(inc),
+          ...normalizeIncidentV2(inc),
         }))
         // Guarantee there is always an active, open incident to work in.
         const open = state.incidents.find((i) => i.id === state.activeIncidentId && !i.closedAt)

@@ -28,16 +28,14 @@ export default function App() {
   const [pulsePointCollapsed, setPulsePointCollapsed] = useState(readPulsePointCollapsed)
   const checklist = incident?.checklist ?? []
   const uncompletedChecklistCount = checklist.filter((item) => !item.completed).length
-  const hasIncident = Boolean(incident)
-
   useEffect(() => {
-    if (!hasIncident) {
+    if (!incident?.id) {
       incidentSyncClient.stop()
       return
     }
-    incidentSyncClient.start()
+    incidentSyncClient.start(incident.id)
     return () => incidentSyncClient.stop()
-  }, [hasIncident])
+  }, [incident?.id])
 
   function usePulsePointIncident(run: PulsePointIncident) {
     if (!incident) return
