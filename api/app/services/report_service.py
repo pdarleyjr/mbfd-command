@@ -5,8 +5,8 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from html import escape
 import json
+import logging
 from io import BytesIO
-from pathlib import Path
 from typing import Any
 
 import httpx
@@ -17,7 +17,7 @@ from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import inch
 from reportlab.platypus import (
-    Image, KeepTogether, LongTable, PageBreak, Paragraph, SimpleDocTemplate,
+    Image, LongTable, PageBreak, Paragraph, SimpleDocTemplate,
     Spacer, Table, TableStyle,
 )
 
@@ -35,9 +35,15 @@ or operational actions.
 Do not recalculate statistics.
 Do not state that an event was successful or unsuccessful unless the
 source data explicitly supports that conclusion.
-Keep the tone factual, concise, and professional."""
+Keep the tone factual, concise, and professional.
+Return only a valid JSON object with exactly these keys: executive_summary,
+operational_overview, notable_activity, data_quality_notes. executive_summary and
+operational_overview must be strings. notable_activity and data_quality_notes must
+be JSON arrays of strings, using [] when empty. Do not use Markdown or repeat a
+statistics table."""
 
 _qwen_semaphore = asyncio.Semaphore(1)
+log = logging.getLogger("cmd-api.report")
 
 
 def _parse(value: str | None) -> datetime | None:
@@ -59,6 +65,28 @@ def _rounded(value: float) -> float:
 
 def _safe(value: Any) -> str:
     return escape(str(value or "—"), quote=True)
+
+
+def _narrative_list(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return [value.strip()[:1200]] if value.strip() else []
+    if not isinstance(value, list):
+        return []
+    return [item.strip()[:1200] for item in value[:12] if isinstance(item, str) and item.strip()]
+
+
+def _validated_narrative(value: Any) -> EventNarrative:
+    if not isinstance(value, dict) or not isinstance(value.get("executive_summary"), str):
+        raise ValueError("narrative is missing an executive summary string")
+    overview = value.get("operational_overview")
+    if not isinstance(overview, str):
+        overview = "This overview is limited to the logged event, run, assignment, and disposition records available at export time."
+    return EventNarrative.model_validate({
+        "executive_summary": value["executive_summary"].strip()[:1800],
+        "operational_overview": overview.strip()[:1800],
+        "notable_activity": _narrative_list(value.get("notable_activity")),
+        "data_quality_notes": _narrative_list(value.get("data_quality_notes")),
+    })
 
 
 class ReportService:
@@ -181,12 +209,13 @@ class ReportService:
             async with _qwen_semaphore:
                 response = await client.post(
                     f"{self.settings.ollama_url}/api/chat", json=payload,
-                    timeout=self.settings.parse_timeout_s,
+                    timeout=self.settings.report_timeout_s,
                 )
             response.raise_for_status()
             content = response.json().get("message", {}).get("content", "")
-            return EventNarrative.model_validate_json(content)
-        except (httpx.HTTPError, ValidationError, json.JSONDecodeError, KeyError, ValueError, TypeError):
+            return _validated_narrative(json.loads(content))
+        except (httpx.HTTPError, ValidationError, json.JSONDecodeError, KeyError, ValueError, TypeError) as exc:
+            log.warning("event narrative unavailable: %s", exc)
             note = "AI narrative generation was unavailable; deterministic fallback text was used."
             if note not in stats.data_quality_notes:
                 stats.data_quality_notes.append(note)

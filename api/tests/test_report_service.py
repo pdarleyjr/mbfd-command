@@ -82,3 +82,26 @@ def test_qwen_outage_uses_fallback_and_pdf_still_renders(tmp_path) -> None:
     pdf = service.render_pdf(stats, fallback)
     assert pdf.startswith(b"%PDF")
     assert len(pdf) > 4_000
+
+
+def test_qwen_schema_drift_is_sanitized_before_validation(tmp_path) -> None:
+    _, service = seeded_report(tmp_path)
+    stats = asyncio.run(service.build_stats("inc-report"))
+
+    async def drift(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"message": {"content": """{
+          "executive_summary": "A factual narrative.",
+          "operational_overview": {"unexpected": "object"},
+          "notable_activity": "One narrative observation.",
+          "data_quality_notes": ["One source-data warning."]
+        }"""}})
+
+    async def narrative():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(drift)) as client:
+            return await service.build_narrative(stats, client)
+
+    result = asyncio.run(narrative())
+    assert result.executive_summary == "A factual narrative."
+    assert result.operational_overview.startswith("This overview is limited")
+    assert result.notable_activity == ["One narrative observation."]
+    assert result.data_quality_notes == ["One source-data warning."]

@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     ollama_url: str = "http://host.docker.internal:11434"
     ollama_model: str = "qwen3.6:35b"
     parse_timeout_s: float = 25.0
+    report_timeout_s: float = 60.0
 
     # ── Storage ──
     db_path: str = "data/mbfd_command.sqlite"

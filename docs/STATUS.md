@@ -37,7 +37,7 @@
 
 | Check | Result |
 |---|---|
-| Backend unit/integration tests | 36 passing |
+| Backend unit/integration tests | 37 passing |
 | Frontend component/store tests | 37 passing |
 | Frontend production build | Passing; about 468 kB JS / 141 kB gzip |
 | Playwright desktop, iPad Pro 11, Pixel 7 | 6 passing against the production build |
