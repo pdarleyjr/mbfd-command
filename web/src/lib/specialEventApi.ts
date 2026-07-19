@@ -28,4 +28,8 @@ export const specialEventApi = {
   patchRun: (incidentId: string, runId: string, value: Partial<EventRun>) => request<EventRun>(`${incidentPath(incidentId)}/runs/${runId}`, { method: 'PATCH', body: JSON.stringify(value) }),
   patchUnit: (incidentId: string, runId: string, unitId: string, value: Record<string, unknown>) => request(`${incidentPath(incidentId)}/runs/${runId}/units/${encodeURIComponent(unitId)}`, { method: 'PATCH', body: JSON.stringify(value) }),
   clearUnit: (incidentId: string, runId: string, unitId: string, value: { returnStagingLocationId?: string; disposition?: MedicalDisposition; transportDestination?: string; patientCount?: number; notes?: string }) => request(`${incidentPath(incidentId)}/runs/${runId}/units/${encodeURIComponent(unitId)}/clear`, { method: 'POST', body: JSON.stringify(value) }),
+  assignPulsePoint: (incidentId: string, externalId: string, unitIds: string[]) => request<EventRun>(`${incidentPath(incidentId)}/pulsepoint/${encodeURIComponent(externalId)}/assign`, { method: 'POST', body: JSON.stringify({ unitIds }) }),
+  addCustomUnit: (incidentId: string, unitId: string, stagingLocationId?: string) => request(`${incidentPath(incidentId)}/units/custom`, { method: 'POST', body: JSON.stringify({ unitId, stagingLocationId }) }),
+  clearPulsePointNow: (incidentId: string, externalId: string) => request(`${incidentPath(incidentId)}/pulsepoint/${encodeURIComponent(externalId)}/clear-now`, { method: 'POST' }),
+  keepPulsePointActive: (incidentId: string, externalId: string) => request(`${incidentPath(incidentId)}/pulsepoint/${encodeURIComponent(externalId)}/keep-active`, { method: 'POST' }),
 }

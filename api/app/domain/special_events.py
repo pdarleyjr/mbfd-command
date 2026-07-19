@@ -64,6 +64,15 @@ class UnitHoldPatch(BaseModel):
     manualHold: bool
 
 
+class CustomUnitCreate(BaseModel):
+    unitId: str = Field(min_length=1, max_length=40)
+    stagingLocationId: str | None = None
+
+
+class PulsePointAssignRequest(BaseModel):
+    unitIds: list[str] = Field(min_length=1, max_length=40)
+
+
 class RunUnitPatch(BaseModel):
     status: OperationalStatus | None = None
     enrouteAt: datetime | None = None

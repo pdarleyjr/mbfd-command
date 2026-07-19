@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     whisper_model: str = "Systran/faster-distil-whisper-small.en"
     whisper_language: str = "en"
     stt_backend: str = "speaches"
+    stt_model_provision_enabled: bool = True
 
     # ── LLM radio parser (Ollama) ──
     ollama_url: str = "http://host.docker.internal:11434"
@@ -42,7 +43,12 @@ class Settings(BaseSettings):
 
     # ── PulsePoint / live incident feed ──
     pulsepoint_url: str = "https://pulsepoint-proxy.pdarleyjr.workers.dev/incidents"
-    pulsepoint_cache_ttl_s: int = 60
+    pulsepoint_cache_ttl_s: int = 15
+    pulsepoint_active_poll_s: int = 15
+    pulsepoint_idle_poll_s: int = 45
+    pulsepoint_clear_grace_s: int = 90
+    pulsepoint_required_misses: int = 2
+    pulsepoint_monitor_enabled: bool = True
 
     # ── Streaming segmentation tuning ──
     sample_rate: int = 16000

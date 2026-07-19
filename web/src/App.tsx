@@ -12,6 +12,8 @@ import { TranscriptPanel } from '@/components/transcript/TranscriptPanel'
 import { ChecklistPanel } from '@/components/board/ChecklistPanel'
 import { SpecialEventBoard } from '@/components/events/SpecialEventBoard'
 import { RunsPanel } from '@/components/events/RunsPanel'
+import { AssignUnitsDialog } from '@/components/events/AssignUnitsDialog'
+import { useSpecialEvents } from '@/store/specialEventStore'
 import type { PulsePointIncident } from '@/lib/pulsepoint'
 
 type AppTab = 'board' | 'map' | 'runs' | 'audio'
@@ -26,6 +28,9 @@ export default function App() {
   const [showNewIncident, setShowNewIncident] = useState(false)
   const [showChecklist, setShowChecklist] = useState(false)
   const [pulsePointCollapsed, setPulsePointCollapsed] = useState(readPulsePointCollapsed)
+  const [assignPulsePoint, setAssignPulsePoint] = useState<PulsePointIncident | null>(null)
+  const eventState = useSpecialEvents((state) => incident ? state.byIncident[incident.id] : undefined)
+  const refreshEvent = useSpecialEvents((state) => state.refresh)
   const checklist = incident?.checklist ?? []
   const uncompletedChecklistCount = checklist.filter((item) => !item.completed).length
 
@@ -50,7 +55,7 @@ export default function App() {
 
   function handlePulsePointAction(action: PulsePointAction) {
     if (action.kind === 'use_as_scene') usePulsePointIncident(action.incident)
-    // Special-event assignment is handled by the server-backed dialog in the PulsePoint phase.
+    else setAssignPulsePoint(action.incident)
   }
 
   if (!incident) return <NewIncidentWizard open required onClose={() => setShowNewIncident(false)} />
@@ -78,5 +83,6 @@ export default function App() {
       {showChecklist && incident.mode === 'scene' && <ChecklistPanel onClose={() => setShowChecklist(false)} />}
     </main>
     <NewIncidentWizard open={showNewIncident} required={false} onClose={() => setShowNewIncident(false)} />
+    <AssignUnitsDialog incidentId={incident.id} pulsepoint={assignPulsePoint} state={eventState} onClose={() => setAssignPulsePoint(null)} onSaved={() => void refreshEvent(incident.id)} onRefresh={() => refreshEvent(incident.id)} />
   </div>
 }

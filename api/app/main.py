@@ -5,7 +5,6 @@ import json
 import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from time import monotonic
 
 import httpx
 from fastapi import Body, FastAPI, WebSocket, WebSocketDisconnect
@@ -22,10 +21,12 @@ from .domain.commands import IncidentCommand
 from .realtime.hub import IncidentHub
 from .routers.incidents import router as incidents_router
 from .routers.runs import router as runs_router
+from .routers.pulsepoint import router as pulsepoint_router
 from .services.incident_service import IncidentService, UnsupportedCommand
 from .services.transcript_service import TranscriptService
 from .transcription.manager import InvalidLease, LeaseConflict, TranscriptionManager
 from .transcription.metrics import transcription_metrics
+from .services.pulsepoint_monitor import PulsePointMonitor
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("cmd-api")
@@ -38,7 +39,6 @@ incident_hub = IncidentHub()
 async def lifespan(app: FastAPI):
     db.init_db()
     app.state.http = httpx.AsyncClient()
-    app.state.pulsepoint_cache = {"expires": 0.0, "data": None}
     app.state.incident_hub = incident_hub
     # Self-provision the STT model in the background so a fresh deploy is turnkey
     # without blocking startup on a multi-hundred-MB download.
@@ -46,7 +46,11 @@ async def lifespan(app: FastAPI):
 
     from .stt import ensure_model_installed
 
-    app.state.model_task = asyncio.create_task(ensure_model_installed(app.state.http))
+    app.state.model_task = (
+        asyncio.create_task(ensure_model_installed(app.state.http))
+        if settings.stt_model_provision_enabled
+        else None
+    )
     async def schedule_loop() -> None:
         while True:
             for incident_id in await IncidentService().list_special_ids():
@@ -55,12 +59,30 @@ async def lifespan(app: FastAPI):
                     await incident_hub.broadcast(incident_id, event)
             await asyncio.sleep(5)
     app.state.schedule_task = asyncio.create_task(schedule_loop())
+    app.state.pulsepoint_monitor = PulsePointMonitor(
+        app.state.http, lambda incident_id, event: incident_hub.broadcast(incident_id, event), settings
+    )
+    app.state.pulsepoint_task = (
+        asyncio.create_task(app.state.pulsepoint_monitor.run())
+        if settings.pulsepoint_monitor_enabled
+        else None
+    )
     log.info("cmd-api ready")
     try:
         yield
     finally:
         app.state.schedule_task.cancel()
-        await asyncio.gather(app.state.schedule_task, return_exceptions=True)
+        app.state.pulsepoint_monitor.stop()
+        if app.state.pulsepoint_task:
+            app.state.pulsepoint_task.cancel()
+        if app.state.model_task:
+            app.state.model_task.cancel()
+        tasks = [app.state.schedule_task]
+        if app.state.pulsepoint_task:
+            tasks.append(app.state.pulsepoint_task)
+        if app.state.model_task:
+            tasks.append(app.state.model_task)
+        await asyncio.gather(*tasks, return_exceptions=True)
         await app.state.http.aclose()
 
 
@@ -78,6 +100,7 @@ app.add_middleware(
 )
 app.include_router(incidents_router)
 app.include_router(runs_router)
+app.include_router(pulsepoint_router)
 
 
 @app.get("/api/health")
@@ -87,49 +110,13 @@ async def health() -> dict:
 
 @app.get("/api/pulsepoint/incidents")
 async def pulsepoint_incidents():
-    """Same-origin PulsePoint proxy for the command-board live incident card."""
-    cache = app.state.pulsepoint_cache
-    now = monotonic()
-    if cache["data"] is not None and cache["expires"] > now:
-        return JSONResponse(
-            cache["data"],
-            headers={"Cache-Control": f"private, max-age={settings.pulsepoint_cache_ttl_s}"},
-        )
-
-    try:
-        response = await app.state.http.get(
-            settings.pulsepoint_url,
-            headers={"Accept": "application/json", "User-Agent": "MBFDCommand/0.1"},
-            timeout=12.0,
-        )
-        response.raise_for_status()
-        data = response.json()
-        if not isinstance(data, dict):
-            raise RuntimeError("PulsePoint proxy returned non-object JSON")
-        data.setdefault("active", [])
-        data.setdefault("recent", [])
-        data.setdefault("fetchedAt", datetime.now(timezone.utc).isoformat())
-        cache["data"] = data
-        cache["expires"] = now + max(10, settings.pulsepoint_cache_ttl_s)
-        return JSONResponse(
-            data,
-            headers={"Cache-Control": f"private, max-age={settings.pulsepoint_cache_ttl_s}"},
-        )
-    except Exception as exc:
-        log.warning("PulsePoint fetch failed: %s", exc)
-        if cache["data"] is not None:
-            stale = {**cache["data"], "stale": True}
-            return JSONResponse(stale, headers={"Cache-Control": "private, max-age=15"})
-        return JSONResponse(
-            {
-                "error": "Incident feed unavailable",
-                "active": [],
-                "recent": [],
-                "fetchedAt": datetime.now(timezone.utc).isoformat(),
-            },
-            status_code=503,
-            headers={"Cache-Control": "no-store"},
-        )
+    """Return the one server monitor's latest persisted feed; browsers do not reconcile calls."""
+    data = app.state.pulsepoint_monitor.latest
+    if data is None:
+        data = await app.state.pulsepoint_monitor.poll_once()
+    if data is None:
+        return JSONResponse({"error": "Incident feed unavailable", "active": [], "recent": [], "fetchedAt": datetime.now(timezone.utc).isoformat()}, status_code=503, headers={"Cache-Control": "no-store"})
+    return JSONResponse(data, headers={"Cache-Control": f"private, max-age={settings.pulsepoint_cache_ttl_s}"})
 
 
 def _transcription_state_message(incident_id: str) -> dict:

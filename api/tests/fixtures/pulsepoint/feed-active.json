@@ -1,0 +1,11 @@
+{
+  "agency": "X1012",
+  "fetchedAt": "2026-07-18T18:42:00Z",
+  "active": [{
+    "id": "pp-100", "callTypeCode": "ME", "callType": "Medical Emergency",
+    "address": "1000 Collins Avenue", "receivedAt": "2026-07-18T18:40:00Z",
+    "lat": 25.79, "lng": -80.13,
+    "units": [{"id": "Rescue 44", "status": "Enroute"}, {"id": "County 9", "status": "On Scene"}]
+  }],
+  "recent": []
+}

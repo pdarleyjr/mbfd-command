@@ -1,0 +1,10 @@
+{
+  "agency": "X1012",
+  "fetchedAt": "2026-07-18T18:46:00Z",
+  "active": [],
+  "recent": [{
+    "id": "pp-100", "callTypeCode": "ME", "callType": "Medical Emergency",
+    "address": "1000 Collins Avenue", "receivedAt": "2026-07-18T18:40:00Z",
+    "closedAt": "2026-07-18T18:45:00Z", "units": [{"id": "R44", "status": "Available"}]
+  }]
+}

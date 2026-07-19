@@ -3,9 +3,13 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
 
+from app.services.pulsepoint_monitor import normalize_feed
+
 
 def load_app(tmp_path, monkeypatch):
     monkeypatch.setenv("CMD_DB_PATH", str(tmp_path / "cmd.sqlite"))
+    monkeypatch.setenv("CMD_PULSEPOINT_MONITOR_ENABLED", "false")
+    monkeypatch.setenv("CMD_STT_MODEL_PROVISION_ENABLED", "false")
     from app import config
     config.get_settings.cache_clear()
     return importlib.reload(importlib.import_module("app.main"))
@@ -94,3 +98,29 @@ def test_absolute_timer_supports_past_future_and_overdue_end(tmp_path, monkeypat
         assert response.status_code == 200
         assert response.json()['lifecycleStatus'] == 'ended'
         assert response.json()['schedule']['actualEndAt'] is not None
+
+
+def test_pulsepoint_assignment_endpoint_uses_latest_server_feed(tmp_path, monkeypatch) -> None:
+    main = load_app(tmp_path, monkeypatch)
+    with TestClient(main.app) as client:
+        incident = client.post('/api/incidents', json={
+            'mode': 'special_event', 'name': 'PulsePoint Detail', 'startImmediately': True,
+        }).json()
+        main.app.state.pulsepoint_monitor.latest = normalize_feed({'active': [{
+            'id': 'pp-api-1', 'callTypeCode': 'ME', 'callType': 'Medical Emergency',
+            'address': '100 Test Ave', 'units': [{'id': 'Rescue 44'}, {'id': 'County 9'}],
+        }]})
+
+        assigned = client.post(
+            f"/api/incidents/{incident['id']}/pulsepoint/pp-api-1/assign",
+            json={'unitIds': ['R44']},
+        )
+        assert assigned.status_code == 200
+        run = assigned.json()
+        assert run['source'] == 'pulsepoint'
+        assert run['sourceExternalId'] == 'pp-api-1'
+        assert run['unitAssignments'][0]['unitId'] == 'R44'
+        assert run['sourcePayload']['units'][1]['normalizedId'] == 'COUNTY9'
+
+        state = client.get(f"/api/incidents/{incident['id']}/event-state").json()
+        assert not any(unit['unitId'] == 'COUNTY9' for unit in state['units'])

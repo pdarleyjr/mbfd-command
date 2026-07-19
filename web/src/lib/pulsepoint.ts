@@ -2,6 +2,7 @@ import { apiBase } from '@/lib/config'
 
 export interface PulsePointUnit {
   id: string
+  normalizedId?: string
   status?: string | null
   clearedAt?: string | null
 }
@@ -16,6 +17,11 @@ export interface PulsePointIncident {
   units: PulsePointUnit[]
   lat?: number | null
   lng?: number | null
+  classification?: {
+    category: 'medical' | 'fire' | 'other'
+    subtype: string
+    source: 'pulsepoint_code' | 'label_fallback' | 'operator_override'
+  }
 }
 
 export interface PulsePointFeed {

@@ -19,10 +19,11 @@ function UnitTile({ unit, location, onLocation }: { unit: IncidentUnitState; loc
   </article>
 }
 
-function RunCard({ run, onUnit }: { run: EventRun; onUnit: (run: EventRun, unitId: string) => void }) {
+function RunCard({ run, onUnit, onSaved = () => undefined }: { run: EventRun; onUnit: (run: EventRun, unitId: string) => void; onSaved?: () => void }) {
   const drop = useDroppable({ id: `run:${run.id}` })
   return <article ref={drop.setNodeRef} className={cn('rounded-xl border bg-surface-raised p-3 shadow-card', drop.isOver ? 'border-go bg-go/10' : 'border-surface-line')}>
     <div className="flex items-start justify-between gap-2"><div className="min-w-0"><strong className="block truncate text-sm text-ink">{run.callTypeLabel}</strong><span className="mt-0.5 block truncate text-xs text-ink-faint">{run.address || 'No location entered'}</span></div><span className={cn('rounded px-1.5 py-0.5 text-[10px] font-bold uppercase', run.category === 'medical' ? 'bg-go/15 text-go' : run.category === 'fire' ? 'bg-live/15 text-live' : 'bg-warn/15 text-warn')}>{run.category}</span></div>
+    {run.status === 'clearing' && run.sourceExternalId && <div className="mt-2 rounded-lg border border-warn/35 bg-warn/10 p-2 text-xs text-warn"><strong>PulsePoint shows this call cleared.</strong><p className="mt-0.5 text-ink-dim">Eligible units will return to prior staging after the server grace period.</p><div className="mt-2 flex gap-2"><Button size="sm" onClick={() => void specialEventApi.clearPulsePointNow(run.incidentId, run.sourceExternalId!).then(onSaved)}>Clear now</Button><Button size="sm" onClick={() => void specialEventApi.keepPulsePointActive(run.incidentId, run.sourceExternalId!).then(onSaved)}>Keep active</Button></div></div>}
     <div className="mt-3 flex flex-wrap gap-2">{run.unitAssignments.filter((item) => !item.clearedAt).map((item) => <button type="button" key={item.unitId} onClick={() => onUnit(run, item.unitId)} className="touch min-h-11 rounded-lg border border-live/35 bg-live/10 px-3 text-sm font-bold text-live">{item.unitId}<span className="ml-1 text-[10px] font-medium uppercase opacity-70">{item.transportAt ? 'Transport' : item.onSceneAt ? 'On scene' : 'Responding'}</span></button>)}</div>
   </article>
 }

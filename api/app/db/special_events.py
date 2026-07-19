@@ -183,6 +183,127 @@ class SpecialEventRepository:
                 conn.rollback(); raise
         return result, event
 
+    def add_custom_unit(self, incident_id: str, unit_id: str, staging_location_id: str | None, client_id: str, command_id: str) -> tuple[dict, dict]:
+        now = _now()
+        with db_connection(self.path) as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                if not staging_location_id:
+                    row = conn.execute("SELECT id FROM staging_locations WHERE incident_id=? ORDER BY is_default DESC, created_at LIMIT 1", (incident_id,)).fetchone()
+                    staging_location_id = row["id"] if row else None
+                conn.execute(
+                    """INSERT INTO incident_units
+                       (incident_id, unit_id, operational_status, staging_location_id, previous_staging_location_id,
+                        current_run_id, manual_hold, status_updated_at) VALUES (?, ?, 'staged', ?, NULL, NULL, 0, ?)""",
+                    (incident_id, unit_id, staging_location_id, now),
+                )
+                event = append_event_in_transaction(conn, incident_id, "unit.custom_added", {"unitId": unit_id, "stagingLocationId": staging_location_id}, client_id=client_id, command_id=command_id)
+                row = conn.execute("SELECT * FROM incident_units WHERE incident_id=? AND unit_id=?", (incident_id, unit_id)).fetchone(); result = _unit(row); conn.commit()
+            except Exception:
+                conn.rollback(); raise
+        return result, event
+
+    def pulsepoint_candidates(self, normalized_unit_ids: list[str]) -> dict[str, list[str]]:
+        if not normalized_unit_ids: return {}
+        marks = ",".join("?" for _ in normalized_unit_ids)
+        with db_connection(self.path) as conn:
+            rows = conn.execute(
+                f"""SELECT iu.incident_id, iu.unit_id FROM incident_units iu
+                    JOIN incidents_v2 i ON i.id=iu.incident_id
+                    WHERE iu.unit_id IN ({marks}) AND iu.operational_status='staged'
+                      AND iu.current_run_id IS NULL AND iu.manual_hold=0
+                      AND i.mode='special_event' AND i.lifecycle_status IN ('active','scheduled')""",
+                tuple(normalized_unit_ids),
+            ).fetchall()
+        result: dict[str, list[str]] = {}
+        for row in rows: result.setdefault(row["incident_id"], []).append(row["unit_id"])
+        return result
+
+    def assign_pulsepoint(self, incident_id: str, pulsepoint: dict, unit_ids: list[str], client_id: str, command_id: str) -> tuple[dict, dict]:
+        now = _now(); external_id = pulsepoint["id"]
+        classification = pulsepoint["classification"]
+        with db_connection(self.path) as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                row = conn.execute("SELECT * FROM runs WHERE incident_id=? AND source='pulsepoint' AND source_external_id=?", (incident_id, external_id)).fetchone()
+                if row:
+                    run_id = row["id"]
+                    conn.execute("UPDATE runs SET call_type_code=?, call_type_label=?, address=?, lat=?, lng=?, updated_at=?, status='active' WHERE id=?", (pulsepoint.get("callTypeCode", ""), pulsepoint.get("callType", ""), pulsepoint.get("address", ""), pulsepoint.get("lat"), pulsepoint.get("lng"), now, run_id))
+                else:
+                    run_id = f"run_{uuid4().hex}"
+                    conn.execute(
+                        """INSERT INTO runs
+                           (id, incident_id, source, source_external_id, source_payload_json, incident_number,
+                            call_type_code, call_type_label, category, subtype, classification_overridden,
+                            address, lat, lng, received_at, activated_at, cleared_at, status, notes, created_at, updated_at)
+                           VALUES (?, ?, 'pulsepoint', ?, ?, '', ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, NULL, 'active', '', ?, ?)""",
+                        (run_id, incident_id, external_id, json.dumps(pulsepoint), pulsepoint.get("callTypeCode", ""),
+                         pulsepoint.get("callType", ""), classification["category"], classification["subtype"],
+                         pulsepoint.get("address", ""), pulsepoint.get("lat"), pulsepoint.get("lng"),
+                         pulsepoint.get("receivedAt") or now, now, now, now),
+                    )
+                existing = {item["unit_id"] for item in conn.execute("SELECT unit_id FROM run_units WHERE run_id=?", (run_id,)).fetchall()}
+                selected = [unit for unit in dict.fromkeys(unit_ids) if unit not in existing]
+                self._assign_units(conn, incident_id, run_id, selected, "pulsepoint", now)
+                event = append_event_in_transaction(conn, incident_id, "pulsepoint.assign_units", {"runId": run_id, "pulsepointIncidentId": external_id, "unitIds": selected}, client_id=client_id, command_id=command_id)
+                row = conn.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone(); result = _run(conn, row); conn.commit()
+            except Exception:
+                conn.rollback(); raise
+        return result, event
+
+    def active_pulsepoint_runs(self) -> list[dict]:
+        with db_connection(self.path) as conn:
+            rows = conn.execute("SELECT id, incident_id, source_external_id, status FROM runs WHERE source='pulsepoint' AND status IN ('active','clearing')").fetchall()
+            return [{"runId": row["id"], "incidentId": row["incident_id"], "externalId": row["source_external_id"], "status": row["status"]} for row in rows]
+
+    def mark_pulsepoint_clearing(self, incident_id: str, external_id: str, clear_after: str, client_id: str, command_id: str) -> dict | None:
+        with db_connection(self.path) as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                row = conn.execute("SELECT id, status FROM runs WHERE incident_id=? AND source='pulsepoint' AND source_external_id=?", (incident_id, external_id)).fetchone()
+                if not row or row["status"] == "clearing": conn.rollback(); return None
+                conn.execute("UPDATE runs SET status='clearing', updated_at=? WHERE id=?", (_now(), row["id"]))
+                event = append_event_in_transaction(conn, incident_id, "pulsepoint.clear_proposed", {"runId": row["id"], "pulsepointIncidentId": external_id, "clearAfter": clear_after}, client_id=client_id, command_id=command_id)
+                conn.commit()
+            except Exception:
+                conn.rollback(); raise
+        return event
+
+    def reactivate_pulsepoint(self, incident_id: str, external_id: str) -> None:
+        with db_connection(self.path) as conn:
+            conn.execute("UPDATE runs SET status='active', updated_at=? WHERE incident_id=? AND source='pulsepoint' AND source_external_id=? AND status='clearing'", (_now(), incident_id, external_id))
+
+    def clear_pulsepoint(self, incident_id: str, external_id: str, client_id: str, command_id: str) -> dict | None:
+        now = _now()
+        with db_connection(self.path) as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                run = conn.execute("SELECT * FROM runs WHERE incident_id=? AND source='pulsepoint' AND source_external_id=?", (incident_id, external_id)).fetchone()
+                if not run: conn.rollback(); return None
+                assignments = conn.execute(
+                    """SELECT ru.*, iu.manual_hold, iu.operational_status, iu.previous_staging_location_id AS unit_previous
+                       FROM run_units ru JOIN incident_units iu ON iu.incident_id=? AND iu.unit_id=ru.unit_id
+                       WHERE ru.run_id=? AND ru.cleared_at IS NULL""", (incident_id, run["id"])
+                ).fetchall()
+                cleared: list[str] = []
+                for item in assignments:
+                    if item["manual_hold"] or item["operational_status"] == "transporting" or item["transport_at"]:
+                        continue
+                    if run["category"] == "medical" and not item["disposition"]:
+                        continue
+                    disposition = item["disposition"] or "not_applicable"
+                    location = item["previous_staging_location_id"] or item["unit_previous"]
+                    conn.execute("UPDATE run_units SET cleared_at=?, disposition=? WHERE run_id=? AND unit_id=?", (now, disposition, run["id"], item["unit_id"]))
+                    conn.execute("UPDATE incident_units SET operational_status='staged', staging_location_id=?, previous_staging_location_id=NULL, current_run_id=NULL, status_updated_at=? WHERE incident_id=? AND unit_id=?", (location, now, incident_id, item["unit_id"]))
+                    cleared.append(item["unit_id"])
+                remaining = conn.execute("SELECT COUNT(*) AS value FROM run_units WHERE run_id=? AND cleared_at IS NULL", (run["id"],)).fetchone()["value"]
+                conn.execute("UPDATE runs SET status=?, cleared_at=?, updated_at=? WHERE id=?", ("cleared" if remaining == 0 else "active", now if remaining == 0 else None, now, run["id"]))
+                event = append_event_in_transaction(conn, incident_id, "pulsepoint.auto_cleared", {"runId": run["id"], "pulsepointIncidentId": external_id, "clearedUnitIds": cleared, "retainedUnitCount": remaining}, client_id=client_id, command_id=command_id)
+                conn.commit()
+            except Exception:
+                conn.rollback(); raise
+        return event
+
     @staticmethod
     def _assign_units(conn: Any, incident_id: str, run_id: str, unit_ids: list[str], source: str, now: str) -> None:
         for unit_id in dict.fromkeys(unit_ids):

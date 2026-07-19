@@ -6,6 +6,8 @@ from fastapi.testclient import TestClient
 def load_app(tmp_path, monkeypatch):
     monkeypatch.setenv("CMD_DB_PATH", str(tmp_path / "cmd.sqlite"))
     monkeypatch.setenv("CMD_REALTIME_V2", "true")
+    monkeypatch.setenv("CMD_PULSEPOINT_MONITOR_ENABLED", "false")
+    monkeypatch.setenv("CMD_STT_MODEL_PROVISION_ENABLED", "false")
     from app import config
 
     config.get_settings.cache_clear()
