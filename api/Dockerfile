@@ -21,10 +21,12 @@ RUN npm run build
 # ---- 2. FastAPI runtime serving the API + the built SPA ----
 FROM python:3.12-slim AS api
 WORKDIR /app
+ARG RELEASE_SHA=unknown
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     CMD_STATIC_DIR=/app/static \
-    CMD_DB_PATH=/app/data/mbfd_command.sqlite
+    CMD_DB_PATH=/app/data/mbfd_command.sqlite \
+    CMD_RELEASE_SHA=$RELEASE_SHA
 COPY api/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 COPY api/app ./app

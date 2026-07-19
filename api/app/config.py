@@ -40,6 +40,7 @@ class Settings(BaseSettings):
     static_dir: str = ""
     uvicorn_workers: int = 1
     realtime_v2: bool = True
+    release_sha: str = "development"
 
     # ── PulsePoint / live incident feed ──
     pulsepoint_url: str = "https://pulsepoint-proxy.pdarleyjr.workers.dev/incidents"
@@ -49,6 +50,8 @@ class Settings(BaseSettings):
     pulsepoint_clear_grace_s: int = 90
     pulsepoint_required_misses: int = 2
     pulsepoint_monitor_enabled: bool = True
+    pulsepoint_automation: bool = False
+    event_pdf_export: bool = True
 
     # ── Streaming segmentation tuning ──
     sample_rate: int = 16000

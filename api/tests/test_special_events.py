@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi.testclient import TestClient
 
 from app.services.pulsepoint_monitor import normalize_feed
+from app.domain.reports import EventNarrative
 
 
 def load_app(tmp_path, monkeypatch):
@@ -124,3 +125,46 @@ def test_pulsepoint_assignment_endpoint_uses_latest_server_feed(tmp_path, monkey
 
         state = client.get(f"/api/incidents/{incident['id']}/event-state").json()
         assert not any(unit['unitId'] == 'COUNTY9' for unit in state['units'])
+
+
+def test_event_pdf_endpoint_records_hash_and_returns_attachment(tmp_path, monkeypatch) -> None:
+    async def deterministic_narrative(*_args, **_kwargs):
+        return EventNarrative(
+            executive_summary='Deterministic test narrative.',
+            operational_overview='Built from logged records.',
+            notable_activity=[], data_quality_notes=[],
+        )
+
+    monkeypatch.setattr('app.services.report_service.ReportService.build_narrative', deterministic_narrative)
+    main = load_app(tmp_path, monkeypatch)
+    with TestClient(main.app) as client:
+        incident = client.post('/api/incidents', json={
+            'mode': 'special_event', 'name': 'PDF Detail', 'startImmediately': True,
+        }).json()
+        response = client.post(f"/api/incidents/{incident['id']}/exports/event-summary.pdf")
+        assert response.status_code == 200
+        assert response.headers['content-type'] == 'application/pdf'
+        assert 'pdf-detail-summary.pdf' in response.headers['content-disposition']
+        assert response.content.startswith(b'%PDF')
+        history = client.get(f"/api/incidents/{incident['id']}/exports").json()
+        assert history[0]['sha256'] == response.headers['x-content-sha256']
+        assert history[0]['metadata']['deterministicStats'] is True
+
+
+def test_operator_override_audit_records_previous_and_new_values(tmp_path, monkeypatch) -> None:
+    main = load_app(tmp_path, monkeypatch)
+    with TestClient(main.app) as client:
+        incident = client.post('/api/incidents', json={'mode': 'special_event', 'name': 'Audit'}).json()
+        run = client.post(f"/api/incidents/{incident['id']}/runs", json={
+            'callTypeLabel': 'Service Call', 'category': 'other', 'subtype': 'service',
+            'receivedAt': '2026-07-18T12:00:00Z', 'unitIds': ['E1'], 'noUnitAssigned': False,
+        }).json()
+        updated = client.patch(f"/api/incidents/{incident['id']}/runs/{run['id']}", json={
+            'category': 'fire', 'subtype': 'fire',
+        }).json()
+        assert updated['classificationOverridden'] is True
+        events = client.get(f"/api/incidents/{incident['id']}/events").json()['events']
+        audit = next(event for event in events if event['action'] == 'run.updated')
+        assert audit['actorClientId'] == 'operator'
+        category = next(item for item in audit['payload']['changes'] if item['field'] == 'category')
+        assert category == {'field': 'category', 'previousValue': 'other', 'newValue': 'fire'}

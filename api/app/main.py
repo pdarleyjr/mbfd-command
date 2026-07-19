@@ -22,6 +22,7 @@ from .realtime.hub import IncidentHub
 from .routers.incidents import router as incidents_router
 from .routers.runs import router as runs_router
 from .routers.pulsepoint import router as pulsepoint_router
+from .routers.exports import router as exports_router
 from .services.incident_service import IncidentService, UnsupportedCommand
 from .services.transcript_service import TranscriptService
 from .transcription.manager import InvalidLease, LeaseConflict, TranscriptionManager
@@ -101,11 +102,17 @@ app.add_middleware(
 app.include_router(incidents_router)
 app.include_router(runs_router)
 app.include_router(pulsepoint_router)
+app.include_router(exports_router)
 
 
 @app.get("/api/health")
 async def health() -> dict:
     return {"ok": True, "service": "cmd-api", "model": settings.ollama_model}
+
+
+@app.get("/api/system/version")
+async def system_version() -> dict:
+    return {"service": "mbfd-command", "apiVersion": app.version, "releaseSha": settings.release_sha}
 
 
 @app.get("/api/pulsepoint/incidents")

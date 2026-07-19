@@ -173,9 +173,11 @@ class SpecialEventRepository:
         with db_connection(self.path) as conn:
             conn.execute("BEGIN IMMEDIATE")
             try:
+                previous = conn.execute("SELECT manual_hold FROM incident_units WHERE incident_id=? AND unit_id=?", (incident_id, unit_id)).fetchone()
+                if not previous: raise KeyError(unit_id)
                 cursor = conn.execute("UPDATE incident_units SET manual_hold=? WHERE incident_id=? AND unit_id=?", (int(manual_hold), incident_id, unit_id))
                 if cursor.rowcount != 1: raise KeyError(unit_id)
-                event = append_event_in_transaction(conn, incident_id, "unit.manual_hold_changed", {"unitId": unit_id, "manualHold": manual_hold}, client_id=client_id, command_id=command_id)
+                event = append_event_in_transaction(conn, incident_id, "unit.manual_hold_changed", {"unitId": unit_id, "field": "manualHold", "previousValue": bool(previous["manual_hold"]), "newValue": manual_hold}, client_id=client_id, command_id=command_id)
                 row = conn.execute("SELECT * FROM incident_units WHERE incident_id=? AND unit_id=?", (incident_id, unit_id)).fetchone()
                 result = _unit(row)
                 conn.commit()
@@ -327,14 +329,19 @@ class SpecialEventRepository:
         allowed = {"incidentNumber": "incident_number", "callTypeLabel": "call_type_label", "category": "category", "subtype": "subtype", "address": "address", "notes": "notes", "status": "status"}
         updates = [(allowed[key], value) for key, value in values.items() if key in allowed and value is not None]
         if not updates: raise ValueError("no changes")
+        if any(column in {"category", "subtype"} for column, _ in updates):
+            updates.append(("classification_overridden", 1))
         now = _now()
         with db_connection(self.path) as conn:
             conn.execute("BEGIN IMMEDIATE")
             try:
+                previous = conn.execute("SELECT * FROM runs WHERE id=? AND incident_id=?", (run_id, incident_id)).fetchone()
+                if not previous: raise KeyError(run_id)
                 sql = ", ".join(f"{column}=?" for column, _ in updates)
                 cursor = conn.execute(f"UPDATE runs SET {sql}, updated_at=? WHERE id=? AND incident_id=?", (*[value for _, value in updates], now, run_id, incident_id))
                 if cursor.rowcount != 1: raise KeyError(run_id)
-                event = append_event_in_transaction(conn, incident_id, "run.updated", {"runId": run_id, "fields": [key for key in values if values[key] is not None]}, client_id=client_id, command_id=command_id)
+                changes = [{"field": key, "previousValue": previous[allowed[key]], "newValue": value} for key, value in values.items() if key in allowed and value is not None]
+                event = append_event_in_transaction(conn, incident_id, "run.updated", {"runId": run_id, "changes": changes}, client_id=client_id, command_id=command_id)
                 row = conn.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone(); result = _run(conn, row); conn.commit()
             except Exception:
                 conn.rollback(); raise
@@ -347,6 +354,9 @@ class SpecialEventRepository:
         with db_connection(self.path) as conn:
             conn.execute("BEGIN IMMEDIATE")
             try:
+                previous = conn.execute("SELECT * FROM run_units WHERE run_id=? AND unit_id=?", (run_id, unit_id)).fetchone()
+                if not previous: raise KeyError(unit_id)
+                previous_unit = conn.execute("SELECT operational_status FROM incident_units WHERE incident_id=? AND unit_id=?", (incident_id, unit_id)).fetchone()
                 if updates:
                     sql = ", ".join(f"{column}=?" for column, _ in updates)
                     cursor = conn.execute(f"UPDATE run_units SET {sql} WHERE run_id=? AND unit_id=?", (*[value for _, value in updates], run_id, unit_id))
@@ -355,7 +365,10 @@ class SpecialEventRepository:
                 if status:
                     conn.execute("UPDATE incident_units SET operational_status=?, status_updated_at=? WHERE incident_id=? AND unit_id=? AND current_run_id=?", (status, now, incident_id, unit_id, run_id))
                 conn.execute("UPDATE runs SET updated_at=? WHERE id=?", (now, run_id))
-                event = append_event_in_transaction(conn, incident_id, "run.unit_updated", {"runId": run_id, "unitId": unit_id}, client_id=client_id, command_id=command_id)
+                changes = [{"field": key, "previousValue": previous[allowed[key]], "newValue": value} for key, value in values.items() if key in allowed and value is not None]
+                if values.get("status"):
+                    changes.append({"field": "status", "previousValue": previous_unit["operational_status"] if previous_unit else None, "newValue": values["status"]})
+                event = append_event_in_transaction(conn, incident_id, "run.unit_updated", {"runId": run_id, "unitId": unit_id, "changes": changes}, client_id=client_id, command_id=command_id)
                 row = conn.execute("SELECT * FROM run_units WHERE run_id=? AND unit_id=?", (run_id, unit_id)).fetchone(); result = _assignment(row); conn.commit()
             except Exception:
                 conn.rollback(); raise

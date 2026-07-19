@@ -20,6 +20,7 @@ import { transcribeClient } from '@/lib/transcribeClient'
 import {
   exportIncidentJson,
   exportTranscriptCsv,
+  downloadEventSummaryPdf,
   printIncident,
 } from '@/lib/export'
 import { Button, IconButton } from '@/components/ui/Button'
@@ -207,7 +208,7 @@ export function TranscriptPanel({
           <IconButton label="Export incident as JSON" onClick={() => exportIncidentJson(incident, entries)}>
             <FileJson size={16} />
           </IconButton>
-          <IconButton label="Print / save as PDF" onClick={printIncident}>
+          <IconButton label={incident.mode === 'special_event' ? 'Download event summary PDF' : 'Print / save as PDF'} onClick={() => incident.mode === 'special_event' ? void downloadEventSummaryPdf(incident) : printIncident()}>
             <Printer size={16} />
           </IconButton>
           <IconButton label="Clear transcript" variant="danger" onClick={() => setConfirmClear(true)} disabled={!entries.length}>

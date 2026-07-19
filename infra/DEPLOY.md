@@ -1,109 +1,132 @@
 # Deploying MBFD Command (GMKtec + Cloudflare)
 
-Single-origin design: the SPA, REST API, and mic WebSocket are all served from
-**one** container (`cmd`) at `https://cmd.mbfdhub.com`, behind **one** Cloudflare
-Access application. A dedicated `cmd-whisper` container provides STT; the warm
-`qwen3.6:35b` on the host provides speaker tagging.
+The React SPA, REST API, WebSockets, PulsePoint reconciliation, report metrics, and
+PDF renderer are served from the single `cmd` container at
+`https://cmd.mbfdhub.com`. Cloudflare Access gates the complete origin. A dedicated
+`cmd-whisper` container provides STT; the pinned, warm `qwen3.6:35b` on the host is
+used only for constrained radio enrichment and administrative report narrative.
 
-```
-Browser ── HTTPS/WSS ──► cmd.mbfdhub.com
-                          │ (Cloudflare Access: email OTP)
-                          ▼
-                 Cloudflare Tunnel (mbfdhub-gmktec)
-                          │  → http://localhost:8210
-                          ▼
-                    [cmd container]  ── http://cmd-whisper:8000  (STT)
-                                     └─ http://host.docker.internal:11434 (Ollama qwen3.6)
-                                     └─ /app/data/*.sqlite (transcript + board)
+```text
+Browser ── HTTPS/WSS ──► Cloudflare Access/Tunnel ──► 127.0.0.1:8210
+                                                       │
+                                                       ├─ cmd (FastAPI + SPA)
+                                                       ├─ cmd-whisper:8000
+                                                       ├─ host Ollama:11434
+                                                       └─ cmd-data SQLite volume
 ```
 
-## Prerequisites on the box
+## 1. Preflight
 
-- Docker (already present). No Node needed — the SPA builds inside the image.
-- The `mbfd-ai` docker network (already present; `cmd-whisper`/`cmd` join it).
-- Warm `qwen3.6:35b` in Ollama (already pinned).
-
-## 1. Get the code on the box
+Production lives at `/opt/mbfd/cmd`. Preserve unexpected or dirty state and stop if
+the runtime topology differs from this document.
 
 ```bash
-ssh gmktec
-sudo install -d -o mbfd -g mbfd /opt/mbfd/cmd
-git clone https://github.com/pdarleyjr/mbfd-command.git /opt/mbfd/cmd
 cd /opt/mbfd/cmd
-```
-
-## 2. Build the image (pass the Google Maps key as a build arg)
-
-The Maps key is baked into the SPA bundle at build time (it's referrer-restricted
-and the app is behind Access, so this is safe). Rebuild whenever the key changes.
-
-```bash
-# Maps key lives only here at build time — not committed.
-export VITE_GOOGLE_MAPS_API_KEY="<paste key>"
-docker build -f api/Dockerfile -t mbfd-cmd:latest \
-  --build-arg VITE_GOOGLE_MAPS_API_KEY="$VITE_GOOGLE_MAPS_API_KEY" .
-```
-
-(Without the key the build still works; the map shows the "add a key" placeholder.)
-
-## 3. Start the containers
-
-```bash
-docker compose -f infra/compose.cmd.yaml up -d
+git status --short
+docker compose -f infra/compose.cmd.yaml ps
 docker inspect --format='{{json .State.Health}}' cmd-whisper
-docker logs cmd --tail 20          # expect "cmd-api ready" + "serving SPA from /app/static"
-curl -s http://127.0.0.1:8210/api/health   # {"ok":true,...}
+docker exec cmd python -c "import sqlite3; c=sqlite3.connect('/app/data/mbfd_command.sqlite'); print(c.execute('PRAGMA quick_check').fetchone()[0])"
+df -h /opt /var/lib/docker
+curl -fsS http://127.0.0.1:8210/api/system/version
 ```
 
-The first STT call warms `cmd-whisper` (a few seconds); subsequent calls are fast.
+Do not rotate API keys, Worker secrets, tokens, or Cloudflare credentials during a
+normal application release.
 
-## 4. Cloudflare Tunnel route
+## 2. Recoverable backup and rollback gate
 
-The production tunnel `mbfdhub-gmktec` is **remote-managed** (config in the CF
-dashboard, not on disk). Add an ingress rule:
-
-- Hostname: `cmd.mbfdhub.com`
-- Service: `http://localhost:8210`
-
-via the dashboard (Zero Trust → Networks → Tunnels → mbfdhub-gmktec → Public
-hostnames → Add), or the API. This also creates the proxied DNS CNAME.
-
-## 5. Cloudflare Access (gate the whole origin)
-
-Create a **self-hosted** Access application:
-
-- Application domain: `cmd.mbfdhub.com` (path `*` — covers UI, `/api/*`, `/ws/*`).
-- Policy: allow emails ending `@miamibeachfl.gov` plus the admin addresses
-  (same identities used elsewhere in the ecosystem; team `darl.cloudflareaccess.com`,
-  email OTP).
-- Because everything is same-origin, the single Access cookie authorizes the page,
-  the API, and the mic WebSocket — no CORS or cross-subdomain dance.
-
-## 6. Verify end-to-end
-
-1. Open `https://cmd.mbfdhub.com`, authenticate via OTP.
-2. The board, unit bank, columns, and (with a key) the map render.
-3. Press **Start Listening**, allow the mic; speak a radio-style line
-   ("Engine 1 to Command, water on the fire"). A partial appears, then a parsed
-   final line (`E1: …`).
-
-## Updating
+Create and hash a SQLite hot backup before the new image runs migrations:
 
 ```bash
-cd /opt/mbfd/cmd && git pull
-export VITE_GOOGLE_MAPS_API_KEY="<key>"
-docker build -f api/Dockerfile -t mbfd-cmd:latest \
-  --build-arg VITE_GOOGLE_MAPS_API_KEY="$VITE_GOOGLE_MAPS_API_KEY" .
-docker compose -f infra/compose.cmd.yaml up -d
+backup="/opt/mbfd/backups/cmd-$(date -u +%Y%m%dT%H%M%SZ).sqlite"
+sudo install -d -o mbfd -g mbfd /opt/mbfd/backups
+docker exec cmd python -c "import sqlite3; src=sqlite3.connect('/app/data/mbfd_command.sqlite'); dst=sqlite3.connect('/app/data/predeploy.sqlite'); src.backup(dst); dst.close(); src.close()"
+docker cp cmd:/app/data/predeploy.sqlite "$backup"
+sha256sum "$backup"
 ```
 
-## Notes / safety
+Tag the current image before replacement. Retain that tag and the matching DB backup
+until acceptance passes. A rollback restores the prior image and whole matching
+SQLite backup; never copy selected tables between schema versions.
 
-- Only `127.0.0.1:8210` is published; nothing is exposed on the LAN/public IP.
-- `cmd-whisper` is dedicated — it never contends with Open WebUI's shared
-  `whisper-stt`.
-- No command data, audio, transcripts, or AI calls leave the homelab.
-- Keep `CMD_UVICORN_WORKERS=1` while the WebSocket hub is in-memory. Multiple
-  workers require Redis or another shared broker first.
-- The DB volume `cmd-data` holds transcripts + board snapshots; back it up with
-  the existing Restic→R2 job if desired.
+## 3. Update and build an identifiable image
+
+The referrer-restricted Maps key remains outside Git. The release SHA is baked into
+the image and exposed at `/api/system/version`.
+
+```bash
+cd /opt/mbfd/cmd
+git pull --ff-only
+export VITE_GOOGLE_MAPS_API_KEY="<existing key>"
+docker tag mbfd-cmd:latest "mbfd-cmd:rollback-$(date -u +%Y%m%dT%H%M%SZ)"
+docker build -f api/Dockerfile -t mbfd-cmd:latest \
+  --build-arg RELEASE_SHA="$(git rev-parse HEAD)" \
+  --build-arg VITE_GOOGLE_MAPS_API_KEY="$VITE_GOOGLE_MAPS_API_KEY" .
+```
+
+## 4. Start and verify the containers
+
+```bash
+docker compose -f infra/compose.cmd.yaml up -d
+docker compose -f infra/compose.cmd.yaml ps
+docker inspect --format='{{json .State.Health}}' cmd-whisper
+docker logs cmd --tail 100
+curl -fsS http://127.0.0.1:8210/api/health
+curl -fsS http://127.0.0.1:8210/api/system/version
+curl -fsS http://127.0.0.1:8210/api/transcription/health
+docker exec cmd python -c "import sqlite3; c=sqlite3.connect('/app/data/mbfd_command.sqlite'); print(c.execute('PRAGMA quick_check').fetchone()[0])"
+```
+
+Keep `CMD_UVICORN_WORKERS=1` until realtime fan-out moves to a shared broker.
+
+## 5. Deploy the version-controlled PulsePoint Worker
+
+The Worker source is in `infra/pulsepoint-worker`. A normal deploy preserves existing
+Worker secrets.
+
+```bash
+cd /opt/mbfd/cmd/infra/pulsepoint-worker
+npm ci
+npx wrangler deploy
+```
+
+The FastAPI monitor owns polling and reconciliation; browser refresh intervals never
+decide assignments or clearance. `CMD_PULSEPOINT_AUTOMATION=false` retains read-only
+ingestion for a rollback-safe automation disable.
+
+## 6. Cloudflare routing and Access
+
+The remote-managed tunnel `mbfdhub-gmktec` routes `cmd.mbfdhub.com` to
+`http://localhost:8210`. One self-hosted Access application at path `*` must cover the
+SPA, `/api/*`, and `/ws/*`. Do not create a second unauthenticated API hostname.
+
+## 7. Runtime acceptance
+
+1. Confirm `/api/system/version` matches the deployed Git SHA.
+2. Confirm the public hostname redirects an unauthenticated request to Access, then
+   test the authenticated UI with touch-sized controls at desktop, tablet, and phone
+   dimensions.
+3. Create two distinct validation incidents. Mutate/reconnect one and verify its
+   revisions/events never enter the other or change the other client's selection.
+4. Create a special event, assign a manual run, record its medical disposition,
+   clear the unit, refresh, and verify it returned to its previous staging location.
+5. Confirm the server-owned PulsePoint feed displays. Exercise automation only with
+   controlled staged-unit data; a failed or stale feed must never clear a unit.
+6. Export an Event PDF. Verify `application/pdf`, `X-Content-SHA256`, and the matching
+   `/api/incidents/{id}/exports` history entry. The isolated test suite must also prove
+   PDF fallback when Ollama is unavailable.
+7. Start one audio capture and verify raw-final-first transcript fan-out to every
+   viewer of that incident without appearing in a different incident.
+8. Record which physical tablet, radio/audio interface, and wall-display checks were
+   performed. Software acknowledgements do not prove physical audio or display output.
+
+## Safety notes
+
+- Only `127.0.0.1:8210` is published; public reachability is through the Access-gated
+  tunnel.
+- No command data, raw audio, transcripts, or reports are sent to external AI.
+- Raw audio is not persisted by default.
+- The `cmd-data` volume contains canonical operational records; include it in the
+  existing encrypted backup program.
+- Qwen does not dispatch/clear units or calculate report statistics. Operators must
+  review AI transcript and narrative as decision support.

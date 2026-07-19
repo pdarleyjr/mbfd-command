@@ -77,7 +77,7 @@ class PulsePointMonitor:
             return self.latest
         self.latest = feed
         await asyncio.to_thread(self.repository.save_feed, feed)
-        if feed["stale"]:
+        if feed["stale"] or not self.settings.pulsepoint_automation:
             return feed
         await self._reconcile(feed)
         return feed

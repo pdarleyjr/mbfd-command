@@ -21,7 +21,7 @@ async def event_state(incident_id: str) -> dict:
 
 @router.post("/staging-locations", status_code=201, response_model=StagingLocationResponse)
 async def create_staging_location(incident_id: str, body: StagingLocationCreate, request: Request) -> dict:
-    location, event = await SpecialEventService().add_location(incident_id, body.model_dump())
+    location, event = await SpecialEventService().add_location(incident_id, body.model_dump(), client_id="operator")
     await _broadcast(request, incident_id, event)
     return location
 
@@ -35,7 +35,7 @@ async def list_runs(incident_id: str) -> dict:
 @router.post("/runs", status_code=201, response_model=RunResponse)
 async def create_run(incident_id: str, body: ManualRunCreate, request: Request) -> dict:
     try:
-        run, event = await SpecialEventService().create_run(incident_id, body.model_dump(mode="json"))
+        run, event = await SpecialEventService().create_run(incident_id, body.model_dump(mode="json"), client_id="operator")
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     await _broadcast(request, incident_id, event)
@@ -52,7 +52,7 @@ async def get_run(incident_id: str, run_id: str) -> dict:
 @router.patch("/runs/{run_id}", response_model=RunResponse)
 async def patch_run(incident_id: str, run_id: str, body: RunPatch, request: Request) -> dict:
     try:
-        run, event = await SpecialEventService().patch_run(incident_id, run_id, body.model_dump(exclude_unset=True, mode="json"))
+        run, event = await SpecialEventService().patch_run(incident_id, run_id, body.model_dump(exclude_unset=True, mode="json"), client_id="operator")
     except KeyError as exc: raise HTTPException(status_code=404, detail="Run not found") from exc
     except ValueError as exc: raise HTTPException(status_code=422, detail=str(exc)) from exc
     await _broadcast(request, incident_id, event); return run
@@ -61,7 +61,7 @@ async def patch_run(incident_id: str, run_id: str, body: RunPatch, request: Requ
 @router.post("/runs/{run_id}/units", response_model=RunResponse)
 async def assign_units(incident_id: str, run_id: str, body: AssignRunUnits, request: Request) -> dict:
     try:
-        run, event = await SpecialEventService().assign_units(incident_id, run_id, body.unitIds)
+        run, event = await SpecialEventService().assign_units(incident_id, run_id, body.unitIds, client_id="operator")
     except (KeyError, ValueError) as exc: raise HTTPException(status_code=409, detail=str(exc)) from exc
     await _broadcast(request, incident_id, event); return run
 
@@ -69,7 +69,7 @@ async def assign_units(incident_id: str, run_id: str, body: AssignRunUnits, requ
 @router.patch("/units/{unit_id}/staging", response_model=IncidentUnitResponse)
 async def set_unit_staging(incident_id: str, unit_id: str, body: UnitStagingPatch, request: Request) -> dict:
     try:
-        unit, event = await SpecialEventService().set_unit_staging(incident_id, unit_id, body.stagingLocationId)
+        unit, event = await SpecialEventService().set_unit_staging(incident_id, unit_id, body.stagingLocationId, client_id="operator")
     except ValueError as exc: raise HTTPException(status_code=409, detail=str(exc)) from exc
     await _broadcast(request, incident_id, event); return unit
 
@@ -77,7 +77,7 @@ async def set_unit_staging(incident_id: str, unit_id: str, body: UnitStagingPatc
 @router.patch("/units/{unit_id}/hold", response_model=IncidentUnitResponse)
 async def set_unit_hold(incident_id: str, unit_id: str, body: UnitHoldPatch, request: Request) -> dict:
     try:
-        unit, event = await SpecialEventService().set_unit_hold(incident_id, unit_id, body.manualHold)
+        unit, event = await SpecialEventService().set_unit_hold(incident_id, unit_id, body.manualHold, client_id="operator")
     except KeyError as exc: raise HTTPException(status_code=404, detail="Unit not found") from exc
     await _broadcast(request, incident_id, event); return unit
 
@@ -85,7 +85,7 @@ async def set_unit_hold(incident_id: str, unit_id: str, body: UnitHoldPatch, req
 @router.patch("/runs/{run_id}/units/{unit_id}", response_model=RunUnitResponse)
 async def patch_run_unit(incident_id: str, run_id: str, unit_id: str, body: RunUnitPatch, request: Request) -> dict:
     try:
-        assignment, event = await SpecialEventService().patch_assignment(incident_id, run_id, unit_id, body.model_dump(exclude_unset=True, mode="json"))
+        assignment, event = await SpecialEventService().patch_assignment(incident_id, run_id, unit_id, body.model_dump(exclude_unset=True, mode="json"), client_id="operator")
     except KeyError as exc: raise HTTPException(status_code=404, detail="Assignment not found") from exc
     await _broadcast(request, incident_id, event); return assignment
 
@@ -93,7 +93,7 @@ async def patch_run_unit(incident_id: str, run_id: str, unit_id: str, body: RunU
 @router.post("/runs/{run_id}/units/{unit_id}/clear", response_model=RunUnitResponse)
 async def clear_run_unit(incident_id: str, run_id: str, unit_id: str, body: ClearRunUnit, request: Request) -> dict:
     try:
-        assignment, event = await SpecialEventService().clear_unit(incident_id, run_id, unit_id, body.model_dump(mode="json"))
+        assignment, event = await SpecialEventService().clear_unit(incident_id, run_id, unit_id, body.model_dump(mode="json"), client_id="operator")
     except DispositionRequired as exc: raise HTTPException(status_code=409, detail="Medical disposition is required") from exc
     except KeyError as exc: raise HTTPException(status_code=404, detail="Assignment not found") from exc
     except ValueError as exc: raise HTTPException(status_code=422, detail=str(exc)) from exc

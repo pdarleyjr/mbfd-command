@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ChevronRight, CirclePlus, Search, X } from 'lucide-react'
+import { ChevronRight, CirclePlus, FileDown, Search, X } from 'lucide-react'
 import type { EventRun, Incident } from '@/types'
 import { elapsedMs } from '@/lib/format'
 import { runActiveDurationMs } from '@/lib/eventTime'
@@ -7,6 +7,7 @@ import { specialEventApi } from '@/lib/specialEventApi'
 import { useNow } from '@/lib/useNow'
 import { useSpecialEvents } from '@/store/specialEventStore'
 import { Button, IconButton } from '@/components/ui/Button'
+import { downloadEventSummaryPdf } from '@/lib/export'
 import { ManualRunDialog } from './ManualRunDialog'
 
 type Filter = 'active' | 'cleared' | 'all' | 'medical' | 'fire' | 'other' | 'pulsepoint' | 'manual'
@@ -18,6 +19,8 @@ export function RunsPanel({ incident }: { incident: Incident }) {
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<EventRun | null>(null)
   const [manual, setManual] = useState(false)
+  const [exporting, setExporting] = useState(false)
+  const [exportError, setExportError] = useState('')
   const now = useNow()
   useEffect(() => { void refresh(incident.id) }, [incident.id, refresh])
   const runs = useMemo(() => (state?.runs ?? []).filter((run) => {
@@ -28,8 +31,15 @@ export function RunsPanel({ incident }: { incident: Incident }) {
     const query = search.trim().toLowerCase()
     return !query || [run.incidentNumber, run.callTypeLabel, run.address, ...run.unitAssignments.map((item) => item.unitId)].some((value) => value.toLowerCase().includes(query))
   }), [filter, search, state])
+  async function exportPdf() {
+    setExporting(true); setExportError('')
+    try { await downloadEventSummaryPdf(incident) }
+    catch (cause) { setExportError(cause instanceof Error ? cause.message : 'PDF export failed') }
+    finally { setExporting(false) }
+  }
   return <section className="panel flex h-full min-h-0 flex-col rounded-2xl">
-    <header className="flex flex-wrap items-center gap-2 border-b border-surface-line p-2.5"><div className="relative min-w-52 flex-1"><Search size={16} className="absolute left-3 top-3.5 text-ink-faint" /><input className="h-11 w-full rounded-lg border border-surface-line bg-surface pl-9 pr-3 text-sm text-ink" placeholder="Search unit, incident #, type, or address" value={search} onChange={(event) => setSearch(event.target.value)} /></div><div className="scroll-thin flex max-w-full gap-1 overflow-x-auto">{(['active', 'cleared', 'all', 'medical', 'fire', 'other', 'pulsepoint', 'manual'] as Filter[]).map((value) => <button type="button" key={value} onClick={() => setFilter(value)} className={`touch min-h-11 whitespace-nowrap rounded-lg border px-3 text-xs font-bold uppercase ${filter === value ? 'border-go/50 bg-go/15 text-go' : 'border-surface-line text-ink-dim'}`}>{value}</button>)}</div><Button variant="solid" onClick={() => setManual(true)}><CirclePlus size={16} /> Add Run</Button></header>
+    <header className="flex flex-wrap items-center gap-2 border-b border-surface-line p-2.5"><div className="relative min-w-52 flex-1"><Search size={16} className="absolute left-3 top-3.5 text-ink-faint" /><input className="h-11 w-full rounded-lg border border-surface-line bg-surface pl-9 pr-3 text-sm text-ink" placeholder="Search unit, incident #, type, or address" value={search} onChange={(event) => setSearch(event.target.value)} /></div><div className="scroll-thin flex max-w-full gap-1 overflow-x-auto">{(['active', 'cleared', 'all', 'medical', 'fire', 'other', 'pulsepoint', 'manual'] as Filter[]).map((value) => <button type="button" key={value} onClick={() => setFilter(value)} className={`touch min-h-11 whitespace-nowrap rounded-lg border px-3 text-xs font-bold uppercase ${filter === value ? 'border-go/50 bg-go/15 text-go' : 'border-surface-line text-ink-dim'}`}>{value}</button>)}</div><Button disabled={exporting} onClick={() => void exportPdf()}><FileDown size={16} /> {exporting ? 'Building PDF…' : 'Export Event PDF'}</Button><Button variant="solid" onClick={() => setManual(true)}><CirclePlus size={16} /> Add Run</Button></header>
+    {exportError && <p role="alert" className="border-b border-live/25 bg-live/10 px-3 py-2 text-sm text-live">{exportError}</p>}
     <div className="scroll-thin min-h-0 flex-1 overflow-auto"><table className="w-full min-w-[1050px] border-collapse text-left text-xs"><thead className="sticky top-0 z-10 bg-surface"><tr className="border-b border-surface-line text-ink-faint">{['Status', 'Received', 'Incident #', 'Type', 'Address', 'Units', 'Disposition', 'Active Time', 'Source', 'Last Updated', ''].map((label) => <th key={label} className="px-3 py-2 font-bold uppercase">{label}</th>)}</tr></thead><tbody>{runs.map((run) => <tr key={run.id} onClick={() => setSelected(run)} className="touch cursor-pointer border-b border-surface-line/50 text-ink-dim hover:bg-surface-high/50"><td className="px-3 py-2"><span className={`rounded px-1.5 py-0.5 font-bold uppercase ${run.status === 'active' ? 'bg-live/15 text-live' : 'bg-surface-high text-ink-faint'}`}>{run.status}</span></td><td className="tabnum px-3 py-2">{new Date(run.receivedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td><td className="px-3 py-2">{run.incidentNumber || '—'}</td><td className="max-w-44 truncate px-3 py-2 font-semibold text-ink">{run.callTypeLabel}</td><td className="max-w-56 truncate px-3 py-2">{run.address || '—'}</td><td className="px-3 py-2">{run.unitAssignments.map((item) => item.unitId).join(', ') || 'Unassigned'}</td><td className="px-3 py-2">{run.unitAssignments.map((item) => item.disposition?.replace('_', ' ')).filter(Boolean).join(', ') || '—'}</td><td className="tabnum px-3 py-2">{elapsedMs(runActiveDurationMs(run, now))}</td><td className="px-3 py-2 font-bold uppercase">{run.source}</td><td className="px-3 py-2">{new Date(run.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td><td className="px-3 py-2"><ChevronRight size={16} /></td></tr>)}</tbody></table>{!runs.length && <p className="p-8 text-center text-sm text-ink-faint">No runs match these filters.</p>}</div>
     <RunDetail incidentId={incident.id} run={selected} onClose={() => setSelected(null)} onSaved={async () => { await refresh(incident.id); const next = useSpecialEvents.getState().byIncident[incident.id]?.runs.find((run) => run.id === selected?.id); setSelected(next ?? null) }} />
     <ManualRunDialog open={manual} incidentId={incident.id} onClose={() => setManual(false)} onSaved={() => void refresh(incident.id)} />

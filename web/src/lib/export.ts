@@ -127,4 +127,24 @@ export function printIncident(): void {
   window.print()
 }
 
+/** Request the authoritative special-event PDF from the server and download it. */
+export async function downloadEventSummaryPdf(incident: Incident): Promise<void> {
+  const response = await fetch(`/api/incidents/${encodeURIComponent(incident.id)}/exports/event-summary.pdf`, {
+    method: 'POST',
+    headers: { Accept: 'application/pdf' },
+  })
+  if (!response.ok) {
+    let detail = `PDF export failed (${response.status})`
+    try { detail = ((await response.json()) as { detail?: string }).detail || detail } catch { /* non-JSON failure */ }
+    throw new Error(detail)
+  }
+  const blob = await response.blob()
+  const disposition = response.headers.get('Content-Disposition') ?? ''
+  const filename = disposition.match(/filename="([^"]+)"/i)?.[1] ?? `${slug(incident.name)}-summary.pdf`
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url; anchor.download = filename
+  document.body.appendChild(anchor); anchor.click(); anchor.remove(); URL.revokeObjectURL(url)
+}
+
 export { stamp }
