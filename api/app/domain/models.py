@@ -42,16 +42,23 @@ class GeoLocation(BaseModel):
     lng: float | None = Field(default=None, ge=-180, le=180)
 
 
+class IncidentMarkerModel(BaseModel):
+    lat: float = Field(ge=-90, le=90)
+    lng: float = Field(ge=-180, le=180)
+
+
 class IncidentCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     mode: IncidentMode
     name: str = Field(min_length=1, max_length=160)
     address: str = Field(default="", max_length=500)
+    marker: IncidentMarkerModel | None = None
     commandPost: GeoLocation | None = None
     scheduledStartAt: datetime | None = None
     scheduledEndAt: datetime | None = None
     startImmediately: bool = True
+    initialStagingLocation: GeoLocation | None = None
 
     @field_validator("name")
     @classmethod
@@ -137,7 +144,7 @@ def create_incident_snapshot(request: IncidentCreateRequest, incident_id: str) -
             "mode": request.mode,
             "name": request.name,
             "address": request.address,
-            "marker": None,
+            "marker": request.marker.model_dump() if request.marker else None,
             "commandPost": request.commandPost.model_dump(mode="json") if request.commandPost else None,
             "lifecycleStatus": lifecycle,
             "schedule": {

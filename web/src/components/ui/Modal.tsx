@@ -10,15 +10,17 @@ interface ModalProps {
   children: ReactNode
   footer?: ReactNode
   className?: string
+  dismissible?: boolean
 }
 
-export function Modal({ open, title, onClose, children, footer, className }: ModalProps) {
+export function Modal({ open, title, onClose, children, footer, className, dismissible = true }: ModalProps) {
   useEffect(() => {
     if (!open) return
+    if (!dismissible) return
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [open, onClose])
+  }, [open, onClose, dismissible])
 
   if (!open) return null
 
@@ -29,7 +31,7 @@ export function Modal({ open, title, onClose, children, footer, className }: Mod
       aria-modal="true"
       aria-label={title}
     >
-      <div className="absolute inset-0 bg-ground/80 backdrop-blur-sm" onClick={onClose} />
+      <div className="absolute inset-0 bg-ground/80 backdrop-blur-sm" onClick={dismissible ? onClose : undefined} />
       <div
         className={cn(
           'relative w-full max-w-md rounded-2xl border border-surface-line bg-surface-raised shadow-lift',
@@ -38,9 +40,7 @@ export function Modal({ open, title, onClose, children, footer, className }: Mod
       >
         <header className="flex items-center justify-between border-b border-surface-line/70 px-5 py-3.5">
           <h2 className="text-base font-bold text-ink">{title}</h2>
-          <IconButton label="Close" onClick={onClose}>
-            <X size={18} />
-          </IconButton>
+          {dismissible && <IconButton label="Close" onClick={onClose}><X size={18} /></IconButton>}
         </header>
         <div className="px-5 py-4">{children}</div>
         {footer && (

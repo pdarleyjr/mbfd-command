@@ -159,3 +159,76 @@ export interface SharedTranscriptionState {
   startedAt: string | null
   lastAudioAt: string | null
 }
+
+export type UnitOperationalStatus = 'unassigned' | 'staged' | 'responding' | 'on_scene' | 'transporting' | 'available' | 'out_of_service'
+export type RunSource = 'pulsepoint' | 'manual'
+export type RunCategory = 'medical' | 'fire' | 'other'
+export type RunSubtype = 'medical' | 'fire' | 'rescue' | 'vehicle' | 'hazmat' | 'alarm' | 'service' | 'marine' | 'other'
+export type RunStatus = 'pending' | 'active' | 'clearing' | 'cleared' | 'cancelled'
+export type MedicalDisposition = 'transport' | 'refusal' | 'no_patient' | 'assist_only' | 'not_applicable'
+
+export interface StagingLocation {
+  id: string
+  name: string
+  address: string
+  lat: number | null
+  lng: number | null
+  notes?: string
+  isDefault: boolean
+}
+
+export interface IncidentUnitState {
+  unitId: string
+  status: UnitOperationalStatus
+  stagingLocationId: string | null
+  currentRunId: string | null
+  previousStagingLocationId: string | null
+  manualHold: boolean
+  statusUpdatedAt: string
+}
+
+export interface RunUnitAssignment {
+  runId: string
+  unitId: string
+  assignedAt: string
+  enrouteAt: string | null
+  onSceneAt: string | null
+  transportAt: string | null
+  clearedAt: string | null
+  disposition: MedicalDisposition | null
+  transportDestination: string
+  patientCount: number | null
+  notes: string
+  assignmentSource: 'operator' | 'pulsepoint'
+}
+
+export interface EventRun {
+  id: string
+  incidentId: string
+  source: RunSource
+  sourceExternalId: string | null
+  sourcePayload: Record<string, unknown> | null
+  incidentNumber: string
+  callTypeCode: string
+  callTypeLabel: string
+  category: RunCategory
+  subtype: RunSubtype
+  classificationOverridden: boolean
+  address: string
+  lat: number | null
+  lng: number | null
+  receivedAt: string
+  activatedAt: string | null
+  clearedAt: string | null
+  status: RunStatus
+  notes: string
+  updatedAt: string
+  unitAssignments: RunUnitAssignment[]
+}
+
+export interface SpecialEventState {
+  incidentId: string
+  stagingLocations: StagingLocation[]
+  units: IncidentUnitState[]
+  runs: EventRun[]
+}

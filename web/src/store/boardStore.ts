@@ -409,9 +409,8 @@ export const useBoard = create<CommandStore>()(
  * SSR/tests unexpectedly.
  */
 export function ensureActiveIncident(): void {
-  const { activeIncidentId, incidents, createIncident, resumeIncident } = useBoard.getState()
+  const { activeIncidentId, incidents, resumeIncident } = useBoard.getState()
   if (activeIncidentId && incidents.some((i) => i.id === activeIncidentId)) return
   const open = incidents.find((i) => !i.closedAt)
   if (open) resumeIncident(open.id)
-  else createIncident()
 }

@@ -173,6 +173,9 @@ class IncidentSyncClient {
     }
 
     if (message.type === 'event') {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('mbfd-incident-event', { detail: message }))
+      }
       const pending = this.pendingIncident
       this.lastRevision = message.revision
       if (message.payload.snapshot) this.applyRemoteIncident(message.payload.snapshot)

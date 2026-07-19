@@ -1,7 +1,22 @@
 import { expect, test } from '@playwright/test'
 
 test('touch command shell remains operable without page overflow', async ({ page }, testInfo) => {
+  await page.route('**/api/incidents', async (route) => {
+    if (route.request().method() !== 'POST') return route.continue()
+    const at = new Date().toISOString()
+    await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({
+      schemaVersion: 2, id: 'inc-e2e', mode: 'scene', name: 'Responsive Test', address: '', marker: null,
+      commandPost: null, lifecycleStatus: 'active', schedule: { scheduledStartAt: null, scheduledEndAt: null, actualStartAt: at, actualEndAt: null },
+      createdAt: at, updatedAt: at, closedAt: null, revision: 1,
+      timer: { startedAt: null, accumulatedMs: 0, running: false },
+      board: { columns: [], bankUnitIds: [] }, checklist: [],
+    }) })
+  })
   await page.goto('/')
+  await page.getByRole('button', { name: 'Scene Command' }).click()
+  await page.getByRole('button', { name: 'Continue' }).click()
+  await page.getByLabel('Incident name').fill('Responsive Test')
+  await page.getByRole('button', { name: 'Create command board' }).click()
 
   await expect(page.getByRole('button', { name: 'Board' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Map' })).toBeVisible()

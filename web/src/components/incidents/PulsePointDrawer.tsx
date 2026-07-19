@@ -14,7 +14,9 @@ export type PulsePointAction =
 export function readPulsePointCollapsed(): boolean {
   if (typeof window === 'undefined') return false
   try {
-    return window.localStorage.getItem(PULSEPOINT_UI_KEY) === 'collapsed'
+    const preference = window.localStorage.getItem(PULSEPOINT_UI_KEY)
+    if (preference) return preference === 'collapsed'
+    return window.innerWidth < 1280
   } catch {
     return false
   }

@@ -6,10 +6,9 @@ import { useBoard } from '@/store/boardStore'
 import { Button, IconButton } from '@/components/ui/Button'
 import { ConfirmDialog, Modal } from '@/components/ui/Modal'
 
-export function IncidentsModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function IncidentsModal({ open, onClose, onNewIncident }: { open: boolean; onClose: () => void; onNewIncident: () => void }) {
   const incidents = useBoard((s) => s.incidents)
   const activeId = useBoard((s) => s.activeIncidentId)
-  const create = useBoard((s) => s.createIncident)
   const resume = useBoard((s) => s.resumeIncident)
   const rename = useBoard((s) => s.renameIncident)
   const close = useBoard((s) => s.closeIncident)
@@ -31,7 +30,7 @@ export function IncidentsModal({ open, onClose }: { open: boolean; onClose: () =
         <Button
           variant="solid"
           onClick={() => {
-            create()
+            onNewIncident()
             onClose()
           }}
         >

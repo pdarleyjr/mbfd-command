@@ -15,7 +15,20 @@ class IncidentService:
         self.repository = IncidentRepository(path or get_settings().db_path)
 
     async def get_snapshot(self, incident_id: str) -> dict[str, Any] | None:
-        return await asyncio.to_thread(self.repository.get_snapshot, incident_id)
+        snapshot, _ = await asyncio.to_thread(self.repository.reconcile_schedule, incident_id)
+        return snapshot
+
+    async def reconcile(self, incident_id: str) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+        return await asyncio.to_thread(self.repository.reconcile_schedule, incident_id)
+
+    async def list_special_ids(self) -> list[str]:
+        return await asyncio.to_thread(self.repository.list_special_ids)
+
+    async def patch_snapshot(self, incident_id: str, changes: dict[str, Any], action: str, client_id: str = "rest") -> tuple[dict, dict]:
+        return await asyncio.to_thread(
+            self.repository.patch_snapshot, incident_id, changes, action,
+            client_id=client_id, command_id=f"{action}_{uuid4().hex}",
+        )
 
     async def list_events(self, incident_id: str, after_revision: int = 0) -> list[dict[str, Any]]:
         return await asyncio.to_thread(self.repository.list_events, incident_id, after_revision)
@@ -28,6 +41,7 @@ class IncidentService:
             snapshot,
             client_id=client_id,
             command_id=f"create_{uuid4().hex}",
+            initial_staging=(request.initialStagingLocation.model_dump() if request.initialStagingLocation else None),
         )
         return event["payload"]["snapshot"]
 

@@ -21,6 +21,7 @@ from .db.incidents import RevisionConflict
 from .domain.commands import IncidentCommand
 from .realtime.hub import IncidentHub
 from .routers.incidents import router as incidents_router
+from .routers.runs import router as runs_router
 from .services.incident_service import IncidentService, UnsupportedCommand
 from .services.transcript_service import TranscriptService
 from .transcription.manager import InvalidLease, LeaseConflict, TranscriptionManager
@@ -38,6 +39,7 @@ async def lifespan(app: FastAPI):
     db.init_db()
     app.state.http = httpx.AsyncClient()
     app.state.pulsepoint_cache = {"expires": 0.0, "data": None}
+    app.state.incident_hub = incident_hub
     # Self-provision the STT model in the background so a fresh deploy is turnkey
     # without blocking startup on a multi-hundred-MB download.
     import asyncio
@@ -45,10 +47,20 @@ async def lifespan(app: FastAPI):
     from .stt import ensure_model_installed
 
     app.state.model_task = asyncio.create_task(ensure_model_installed(app.state.http))
+    async def schedule_loop() -> None:
+        while True:
+            for incident_id in await IncidentService().list_special_ids():
+                _, event = await IncidentService().reconcile(incident_id)
+                if event:
+                    await incident_hub.broadcast(incident_id, event)
+            await asyncio.sleep(5)
+    app.state.schedule_task = asyncio.create_task(schedule_loop())
     log.info("cmd-api ready")
     try:
         yield
     finally:
+        app.state.schedule_task.cancel()
+        await asyncio.gather(app.state.schedule_task, return_exceptions=True)
         await app.state.http.aclose()
 
 
@@ -65,6 +77,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(incidents_router)
+app.include_router(runs_router)
 
 
 @app.get("/api/health")
