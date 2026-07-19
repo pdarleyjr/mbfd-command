@@ -11,7 +11,6 @@ from fastapi import Body, FastAPI, WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from fastapi.staticfiles import StaticFiles
 
 from . import db
 from .config import get_settings, require_single_process
@@ -28,6 +27,7 @@ from .services.transcript_service import TranscriptService
 from .transcription.manager import InvalidLease, LeaseConflict, TranscriptionManager
 from .transcription.metrics import transcription_metrics
 from .services.pulsepoint_monitor import PulsePointMonitor
+from .static import HttpOnlyStaticFiles
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("cmd-api")
@@ -363,5 +363,5 @@ async def get_board(incident_id: str):
 # Mounted last so it never shadows the API or WebSocket routes above.
 _static = settings.static_path
 if _static is not None:
-    app.mount("/", StaticFiles(directory=str(_static), html=True), name="spa")
+    app.mount("/", HttpOnlyStaticFiles(directory=str(_static), html=True), name="spa")
     log.info("serving SPA from %s", _static)
