@@ -1,6 +1,6 @@
 # MBFD Command V2 — Deployment Status
 
-**Implementation candidate prepared 2026-07-18. Production validation is recorded only after the GMKtec release is deployed and checked.**
+**Production release completed and accepted on 2026-07-19.**
 
 | Item | Value |
 |---|---|
@@ -33,14 +33,14 @@
   per-unit activity, dispositions, source/subtype splits, Qwen narrative-only schema,
   fallback narrative, ReportLab PDF, SHA-256 header, and export history.
 
-## Verification completed on the candidate
+## Verification completed
 
 | Check | Result |
 |---|---|
-| Backend unit/integration tests | 37 passing |
+| Backend unit/integration tests | 39 passing |
 | Frontend component/store tests | 37 passing |
 | Frontend production build | Passing; about 468 kB JS / 141 kB gzip |
-| Playwright desktop, iPad Pro 11, Pixel 7 | 6 passing against the production build |
+| Playwright desktop, iPad Pro 11, Pixel 7 | 6 passing against the deployed build through the GMKtec tunnel |
 | Exact report totals | Fixed-time DB fixture verifies event, run, assignment, unit, and disposition totals |
 | Qwen report outage | PDF still renders with deterministic fallback |
 | PulsePoint outage/stale protection | Recorded fixtures verify no automatic clearance from failed/stale data |
@@ -63,10 +63,26 @@
   verify critical traffic against radio, CAD, dispatch logs, and command procedures.
 - Raw audio is not persisted by default; all inference remains local on the GMKtec.
 
-## Production acceptance gate
+## Production acceptance record
 
-After deployment, record the deployed Git SHA from `/api/system/version`, container
-health, SQLite integrity/backup evidence, internal and Access-gated reachability,
-scene/special-event UI smoke, incident isolation, STT readiness, PulsePoint feed state,
-PDF download/hash/history, and any remaining physical checks. Green repository tests
-alone are not production completion.
+| Check | Production result |
+|---|---|
+| Application release | `/api/system/version` reports `85f851f60b6c7da8d36f896749d7988e2e19ee5e` |
+| Application image | `sha256:4728ffc4fdf826781c5914a550f018ad0560196606321717f8249afcc0c20bed` |
+| PulsePoint Worker | Deployed version `84ec9b22-5478-458e-b358-f7882ac613f9` |
+| Container health | `cmd` running with zero restarts; `cmd-whisper` healthy with zero restarts |
+| AI readiness | STT model installed/ready; host Qwen parser ready |
+| Public boundary | Unauthenticated `/` and `/api/health` both return Cloudflare Access `302` redirects |
+| Database preservation | `PRAGMA quick_check=ok`; migrations 1 and 2; 22 legacy incidents, 170 legacy transcript rows, and 1 legacy incident snapshot preserved |
+| Backups | Pre-migration and just-in-time SQLite backups stored under `/opt/mbfd/backups`; both hash to `f1dc1d681dba7c4694c1f747d3e67d5af8487e8496288d32125db6b24632171b` |
+| Realtime | Two live scenes proved incident isolation, revision 2 delivery, and reconnect recovery; unknown sockets close without server exceptions |
+| Special event | Live custom unit assignment, medical run, `no_patient` disposition, and return to prior staging passed |
+| PDF | Live 2,433,512-byte PDF passed media-type, content, response SHA, and export-history checks; Qwen narrative did not use fallback |
+| PulsePoint | Live feed was non-stale with 1 active and 10 recent incidents at observation time |
+| Cleanup | All generated acceptance and E2E fixture records were name/ID verified, deleted, and followed by `quick_check=ok`; one migrated V2 snapshot remains |
+| Post-release logs | No `ERROR`, traceback, critical, or assertion entries after the final disconnect-cleanup release and repeated UI suite |
+
+The remaining checks are physical: approved representative radio recordings for the
+benchmark harness, real radio/audio-interface capture, and hands-on use on the actual
+tablets/touchscreens and any wall display. These cannot be proven by browser automation
+or runtime telemetry.
