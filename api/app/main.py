@@ -148,18 +148,18 @@ async def incident_audio_ws(ws: WebSocket, incident_id: str) -> None:
     lease_id = ws.query_params.get("lease") or ""
     session: StreamSession | None = None
     await transcription_manager.connect(incident_id, ws)
-    await ws.send_json(_transcription_state_message(incident_id))
-    if lease_id:
-        try:
-            await transcription_manager.heartbeat(incident_id, client_id, lease_id)
-            session = StreamSession(
-                incident_id,
-                lambda payload: transcription_manager.broadcast(incident_id, payload),
-                ws.app.state.http,
-            )
-        except InvalidLease:
-            await ws.send_json({"type": "error", "message": "Capture lease is invalid or expired"})
     try:
+        await ws.send_json(_transcription_state_message(incident_id))
+        if lease_id:
+            try:
+                await transcription_manager.heartbeat(incident_id, client_id, lease_id)
+                session = StreamSession(
+                    incident_id,
+                    lambda payload: transcription_manager.broadcast(incident_id, payload),
+                    ws.app.state.http,
+                )
+            except InvalidLease:
+                await ws.send_json({"type": "error", "message": "Capture lease is invalid or expired"})
         while True:
             msg = await ws.receive()
             if msg["type"] == "websocket.disconnect":
@@ -248,17 +248,16 @@ async def incident_ws(ws: WebSocket, incident_id: str) -> None:
         last_revision = 0
     await incident_hub.connect(incident_id, ws)
     service = IncidentService()
-    snapshot = await service.get_snapshot(incident_id)
-    await ws.send_json(
-        {
-            "type": "snapshot",
-            "incidentId": incident_id,
-            "revision": int(snapshot.get("revision", 0)) if snapshot else 0,
-            "snapshot": snapshot,
-        }
-    )
-
     try:
+        snapshot = await service.get_snapshot(incident_id)
+        await ws.send_json(
+            {
+                "type": "snapshot",
+                "incidentId": incident_id,
+                "revision": int(snapshot.get("revision", 0)) if snapshot else 0,
+                "snapshot": snapshot,
+            }
+        )
         while True:
             raw = await ws.receive_json()
             try:

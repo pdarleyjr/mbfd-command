@@ -92,3 +92,13 @@ def test_incident_mismatch_is_rejected(tmp_path, monkeypatch):
                 }
             )
             assert ws.receive_json()["reason"] == "incident_mismatch"
+
+
+def test_immediate_disconnect_removes_socket_from_incident_hub(tmp_path, monkeypatch):
+    main = load_app(tmp_path, monkeypatch)
+    with TestClient(main.app) as client:
+        incident = client.post("/api/incidents", json={"mode": "scene", "name": "A"}).json()
+        with client.websocket_connect(f"/ws/incidents/{incident['id']}?client=short-lived"):
+            pass
+
+        assert incident["id"] not in main.incident_hub._incidents
